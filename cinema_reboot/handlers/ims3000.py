@@ -1,20 +1,31 @@
 """
-IMS3000 Handler – Playwright-Automation für Kino 08 (abweichendes UI).
+IMS3000 Handler – Playwright-Automation für Kino 08.
 
-UI-Flow basiert auf den Screenshots:
-  1. Kino 8 IP und anmelde seite.png   → Login-Seite (/web/login.php)
-  2. Kino 8 Power knopf recht.png      → Dashboard: "No playback in progress"
-                                           + roter Logout/Power-Button oben rechts
-  3. Kino 8 Reboot.png                 → Power-Dialog: Standby/Reboot/Shutdown/Logout
-  4. Kino 8 Meldung reset abbrechen.png → Popup: Playback läuft → Abbrechen
-  5. Kino 8 Contdown.png               → Countdown: "System will reboot in X seconds"
-  6. Kino 8 Restarting.png             → Restarting-Overlay
-  7. Kino 8 wieder erreichbar.png      → Login-Seite wieder sichtbar
+UI-Flow (bestätigt durch Screenshots):
+  1. Login-Seite: http://{ip}/web/login.php
+     → "Kino 08" / Username / Password / Login-Button
+  2. Dashboard: /web/index.php
+     → Playback-Bereich Mitte: "No playback in progress" = sicher
+     → Wenn Film läuft: Zeit läuft, kein "No playback in progress" Text
+     → Power-Button oben rechts: roter "⏻ Logout"-Button (öffnet Power-Menü)
+  3. Power-Dialog: "IMS3000 - Power management"
+     → Standby ❌ | Reboot ✅ | Shutdown ❌ | Logout ❌ | Close (Abbruch)
+  4. Playback-Popup (ROTE GRENZE): "Playback is currently running!"
+     → OK ❌ NIEMALS | Abbrechen ✅ SOFORT
+  5. Countdown: "System will reboot in X seconds. Cancel"
+     → Nichts klicken, einfach warten
+  6. Restarting:
+     → Banner: "Your connection is slow or soap service is unavailable"
+     → Dialog: "Shutdown / Reboot" + "Restarting..." + Spinner
+  7. Server bereit:
+     → Direkt die normale Login-Seite /web/login.php erscheint wieder
+     → Kein spezieller "ready"-Screen (anders als Doremi)
 
-SICHERHEITSREGEL:
-  - NIEMALS auf "OK" beim Playback-Popup klicken
+SICHERHEITSREGELN:
+  - NIEMALS OK beim Playback-Popup klicken
   - Im Power-Dialog NUR "Reboot" klicken (nicht Standby, Shutdown, Logout)
-  - "No playback in progress" muss VOR dem Reboot-Auslösen sichtbar sein
+  - "No playback in progress" muss VOR dem Reboot sichtbar sein
+  - Bei unbekanntem UI-Zustand: konservativ abbrechen (UI_UNCLEAR)
 """
 import logging
 import time
@@ -30,44 +41,43 @@ logger = logging.getLogger(__name__)
 class IMS3000Handler(BaseHandler):
     """Handler für IMS3000 WebUI (Kino 08)."""
 
-    # IMS3000 Login-Seite
     LOGIN_PATH = "/web/login.php"
 
-    # Selektoren für IMS3000
-    SEL_USERNAME_INPUT = "input[name='username'], input[type='text'], #username, input[name='user']"
-    SEL_PASSWORD_INPUT = "input[name='password'], input[type='password'], #password, input[name='pass']"
-    SEL_LOGIN_BUTTON = "input[type='submit'], button[type='submit'], #login-btn, button:has-text('Login')"
+    # ── Login ─────────────────────────────────────────────────────────────────
+    SEL_USERNAME_INPUT = "input[name='username']"
+    SEL_PASSWORD_INPUT = "input[name='password']"
+    SEL_LOGIN_BUTTON   = "button:has-text('Login')"
 
-    # Power/Logout-Button oben rechts (bei IMS3000 heißt er "Logout" ist aber Power)
-    SEL_POWER_BUTTON = (
-        "button.logout, "
-        "a.logout, "
-        "#logout-btn, "
-        "[title*='Logout'], [title*='Power'], "
-        "[class*='logout'], [class*='power'], "
-        "text=Logout"
-    )
+    # ── Power-Button oben rechts ──────────────────────────────────────────────
+    # Roter "⏻ Logout"-Button in der Navigation → öffnet Power-Dialog
+    # HINWEIS: Dieser Button heißt "Logout" aber öffnet das Power-Menü.
+    # Er wird geklickt BEVOR der Dialog offen ist, daher kein Konflikt
+    # mit dem "Logout"-Button im Dialog selbst.
+    SEL_POWER_BUTTON = "button:has-text('Logout')"
 
-    # Power-Dialog Einträge (nach Klick auf Power/Logout-Button)
-    SEL_DIALOG_REBOOT = "text=Reboot"
-    SEL_DIALOG_STANDBY = "text=Standby"    # Verboten
-    SEL_DIALOG_SHUTDOWN = "text=Shutdown"  # Verboten
-    SEL_DIALOG_LOGOUT = "text=Logout"      # Verboten
+    # ── Power-Dialog "IMS3000 - Power management" ─────────────────────────────
+    SEL_DIALOG_TITLE    = "text=IMS3000 - Power management"
+    SEL_DIALOG_REBOOT   = "button:has-text('Reboot')"    # ✅ EINZIGER ERLAUBTER KLICK
+    SEL_DIALOG_STANDBY  = "button:has-text('Standby')"   # ❌ nur zur Erkennung
+    SEL_DIALOG_SHUTDOWN = "button:has-text('Shutdown')"  # ❌ nur zur Erkennung
+    SEL_DIALOG_CLOSE    = "button:has-text('Close')"     # Abbruch
 
-    # Playback-Status (Pre-Check)
-    # Das Bild zeigt: "No playback in progress" soll sichtbar sein
-    SEL_NO_PLAYBACK = (
-        "text=No playback in progress, "
-        "text=No Playback in progress, "
-        "text=No playback"
-    )
-    SEL_PLAYBACK_ACTIVE = "text=Playback in progress, text=Playback läuft"
+    # ── Pre-Check Playback-Bereich (Mitte des Dashboards) ────────────────────
+    # "No playback in progress" MUSS sichtbar sein – sonst kein Reboot
+    SEL_NO_PLAYBACK = "text=No playback in progress"
 
-    # Countdown nach Reboot
-    SEL_COUNTDOWN = "text=System will reboot in, text=System will reboot after"
+    # ── Playback-Popup (ROTE GRENZE) ──────────────────────────────────────────
+    SEL_POPUP_PLAYBACK_TEXT = "text=Playback is currently running"
+    SEL_POPUP_CANCEL        = "button:has-text('Abbrechen')"  # ✅ SOFORT KLICKEN
+    SEL_POPUP_OK            = "button:has-text('OK')"         # ❌ NIEMALS KLICKEN
 
-    # Restarting-Overlay
-    SEL_RESTARTING = "text=Restarting, text=Shutdown"
+    # ── Countdown nach Reboot-Klick ───────────────────────────────────────────
+    SEL_COUNTDOWN = "text=System will reboot in"
+
+    # ── Restarting-Zustand ────────────────────────────────────────────────────
+    SEL_RESTARTING       = "text=Restarting..."
+    SEL_RESTARTING_TITLE = "text=Shutdown / Reboot"
+    SEL_SLOW_CONNECTION  = "text=Your connection is slow or soap service is unavailable"
 
     def base_url(self) -> str:
         return f"http://{self.ip}{self.LOGIN_PATH}"
@@ -75,46 +85,37 @@ class IMS3000Handler(BaseHandler):
     def execute_reboot(self, page: Page) -> RebootOutcome:
         """Vollständiger Reboot-Flow für IMS3000 (Kino 08)."""
         start_time = time.time()
-        cinema_name = self.cinema_name
 
         try:
-            # ─────────────────────────────────────────────
-            # SCHRITT 1: Login
-            # ─────────────────────────────────────────────
-            self.logger.info(f"[{cinema_name}] Schritt 1: IMS3000 Login...")
+            # ── Schritt 1: Login ──────────────────────────────────────────────
+            self.logger.info(f"[{self.cinema_name}] Schritt 1: IMS3000 Login...")
             outcome = self._login(page)
             if outcome is not None:
                 return outcome
 
-            # ─────────────────────────────────────────────
-            # SCHRITT 2: Pre-Check
-            # "No playback in progress" muss sichtbar sein
-            # ─────────────────────────────────────────────
-            self.logger.info(f"[{cinema_name}] Schritt 2: Pre-Check (No playback in progress)...")
+            # ── Schritt 2: Pre-Check ──────────────────────────────────────────
+            self.logger.info(
+                f"[{self.cinema_name}] Schritt 2: Pre-Check ('No playback in progress')...")
             outcome = self._pre_check(page)
             if outcome is not None:
                 return outcome
 
-            # ─────────────────────────────────────────────
-            # SCHRITT 3: Reboot auslösen
-            # ─────────────────────────────────────────────
-            self.logger.info(f"[{cinema_name}] Schritt 3: Reboot auslösen...")
+            # ── Schritt 3: Reboot auslösen ────────────────────────────────────
+            self.logger.info(f"[{self.cinema_name}] Schritt 3: Reboot auslösen...")
             outcome = self._trigger_reboot(page)
             if outcome is not None:
                 return outcome
 
             if self.dry_run:
-                self.logger.info(f"[{cinema_name}] DRY-RUN: IMS3000 Flow erfolgreich durchlaufen.")
+                self.logger.info(f"[{self.cinema_name}] DRY-RUN: IMS3000 Flow erfolgreich.")
                 return RebootOutcome(
                     result=RebootResult.DRY_RUN_OK,
                     message="Dry-Run: Alle Checks OK, Reboot würde ausgeführt.",
                     duration_seconds=time.time() - start_time,
                 )
 
-            # ─────────────────────────────────────────────
-            # SCHRITT 4: Warten bis wieder online
-            # ─────────────────────────────────────────────
-            self.logger.info(f"[{cinema_name}] Schritt 4: Warten auf Wiederherstellung...")
+            # ── Schritt 4: Warten bis wieder online ───────────────────────────
+            self.logger.info(f"[{self.cinema_name}] Schritt 4: Warte auf Wiederherstellung...")
             online = self.wait_for_server_online(page)
             if not online:
                 return RebootOutcome(
@@ -123,16 +124,15 @@ class IMS3000Handler(BaseHandler):
                     duration_seconds=time.time() - start_time,
                 )
 
-            # ─────────────────────────────────────────────
-            # SCHRITT 5: Post-Login
-            # ─────────────────────────────────────────────
-            self.logger.info(f"[{cinema_name}] Schritt 5: Post-Login...")
+            # ── Schritt 5: Post-Login ─────────────────────────────────────────
+            self.logger.info(f"[{self.cinema_name}] Schritt 5: Post-Login...")
             outcome = self._post_login(page)
             if outcome is not None:
                 return outcome
 
             duration = time.time() - start_time
-            self.logger.info(f"[{cinema_name}] IMS3000 Reboot erfolgreich! Dauer: {duration:.0f}s")
+            self.logger.info(
+                f"[{self.cinema_name}] ✅ IMS3000 Reboot erfolgreich! Dauer: {duration:.0f}s")
             return RebootOutcome(
                 result=RebootResult.SUCCESS,
                 message="IMS3000 Reboot erfolgreich abgeschlossen.",
@@ -140,7 +140,7 @@ class IMS3000Handler(BaseHandler):
             )
 
         except Exception as e:
-            self.logger.exception(f"[{cinema_name}] Unerwarteter Fehler: {e}")
+            self.logger.exception(f"[{self.cinema_name}] Unerwarteter Fehler: {e}")
             self.take_screenshot_on_error(page, "ims3000_unexpected_error")
             return RebootOutcome(
                 result=RebootResult.ERROR,
@@ -148,226 +148,199 @@ class IMS3000Handler(BaseHandler):
                 duration_seconds=time.time() - start_time,
             )
 
+    # ── Login ─────────────────────────────────────────────────────────────────
+
     def _login(self, page: Page) -> Optional[RebootOutcome]:
-        """Öffnet die IMS3000 Login-Seite und loggt ein."""
+        """Öffnet /web/login.php und meldet sich an."""
         try:
             page.goto(self.base_url(), timeout=self.PAGE_LOAD_TIMEOUT_MS)
             page.wait_for_load_state("networkidle", timeout=self.PAGE_LOAD_TIMEOUT_MS)
         except PlaywrightTimeout:
             self.take_screenshot_on_error(page, "ims3000_page_load_timeout")
-            return RebootOutcome(
-                result=RebootResult.OFFLINE,
-                message="IMS3000 Seite konnte nicht geladen werden.",
-            )
+            return RebootOutcome(result=RebootResult.OFFLINE,
+                                 message="IMS3000 Login-Seite nicht ladbar.")
 
-        # Prüfen ob Login-Formular sichtbar
         try:
-            page.locator(self.SEL_USERNAME_INPUT).first.wait_for(
-                timeout=self.ELEMENT_TIMEOUT_MS
-            )
+            page.locator(self.SEL_USERNAME_INPUT).wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
         except PlaywrightTimeout:
-            # Ggf. schon eingeloggt
             self.logger.debug("IMS3000 Login-Formular nicht gefunden – evtl. schon eingeloggt.")
             return None
 
         try:
-            page.locator(self.SEL_USERNAME_INPUT).first.fill(self.username)
-            page.locator(self.SEL_PASSWORD_INPUT).first.fill(self.password)
-            page.locator(self.SEL_LOGIN_BUTTON).first.click()
+            page.locator(self.SEL_USERNAME_INPUT).fill(self.username)
+            page.locator(self.SEL_PASSWORD_INPUT).fill(self.password)
+            page.locator(self.SEL_LOGIN_BUTTON).click()
             page.wait_for_load_state("networkidle", timeout=self.PAGE_LOAD_TIMEOUT_MS)
         except PlaywrightTimeout:
             self.take_screenshot_on_error(page, "ims3000_login_timeout")
-            return RebootOutcome(
-                result=RebootResult.LOGIN_FAILED,
-                message="IMS3000 Login-Timeout.",
-            )
+            return RebootOutcome(result=RebootResult.LOGIN_FAILED,
+                                 message="IMS3000 Login-Timeout.")
 
-        # Login-Erfolg prüfen: Dashboard muss sichtbar sein
+        # Login-Erfolg: Power-Button muss sichtbar sein
         try:
-            page.locator(self.SEL_POWER_BUTTON).first.wait_for(
-                timeout=self.ELEMENT_TIMEOUT_MS
-            )
+            page.locator(self.SEL_POWER_BUTTON).wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
         except PlaywrightTimeout:
             if page.locator(self.SEL_USERNAME_INPUT).count() > 0:
                 self.take_screenshot_on_error(page, "ims3000_login_failed")
-                return RebootOutcome(
-                    result=RebootResult.LOGIN_FAILED,
-                    message="IMS3000 Login fehlgeschlagen.",
-                )
+                return RebootOutcome(result=RebootResult.LOGIN_FAILED,
+                                     message="IMS3000 Login fehlgeschlagen.")
 
         self.logger.info(f"[{self.cinema_name}] IMS3000 Login erfolgreich.")
         return None
 
+    # ── Pre-Check ─────────────────────────────────────────────────────────────
+
     def _pre_check(self, page: Page) -> Optional[RebootOutcome]:
         """
-        Prüft ob "No playback in progress" sichtbar ist.
-        Das ist die Mindestvoraussetzung für IMS3000 Reboot.
+        Prüft ob 'No playback in progress' im Playback-Bereich sichtbar ist.
+        Das ist die EINZIGE Freigabe für den Reboot.
         """
-        # Aktiven Playback erkennen
-        if page.locator(self.SEL_PLAYBACK_ACTIVE).count() > 0:
-            self.logger.warning(
-                f"[{self.cinema_name}] IMS3000 PRE-CHECK: Playback aktiv → Abbruch!"
-            )
-            self.take_screenshot_on_error(page, "ims3000_precheck_playback")
-            return RebootOutcome(
-                result=RebootResult.BLOCKED_BY_PLAYBACK,
-                message="IMS3000 Pre-Check: Playback ist aktiv.",
-            )
-
-        # "No playback in progress" muss explizit sichtbar sein
         no_playback_visible = page.locator(self.SEL_NO_PLAYBACK).count() > 0
 
         self.logger.info(
             f"[{self.cinema_name}] IMS3000 Pre-Check: "
-            f"No-Playback-sichtbar={no_playback_visible}"
+            f"'No playback in progress' sichtbar = {no_playback_visible}"
         )
 
         if not no_playback_visible:
             self.logger.warning(
-                f"[{self.cinema_name}] IMS3000 PRE-CHECK: "
-                "'No playback in progress' NICHT erkennbar → konservativ abgebrochen."
-            )
-            self.take_screenshot_on_error(page, "ims3000_precheck_unclear")
+                f"[{self.cinema_name}] ⛔ IMS3000 PRE-CHECK: "
+                "'No playback in progress' NICHT erkennbar → konservativ abgebrochen.")
+            self.take_screenshot_on_error(page, "ims3000_precheck_failed")
+            # Wir können nicht sicher sagen ob Playback oder UI unklar ist → UI_UNCLEAR
+            # (sicherer als BLOCKED_BY_PLAYBACK, da wir es nicht bestätigen konnten)
             return RebootOutcome(
                 result=RebootResult.UI_UNCLEAR,
                 message="IMS3000 Pre-Check: 'No playback in progress' nicht sichtbar.",
             )
 
-        self.logger.info(f"[{self.cinema_name}] IMS3000 Pre-Check bestanden.")
+        self.logger.info(f"[{self.cinema_name}] IMS3000 Pre-Check bestanden ✓")
         return None
+
+    # ── Reboot auslösen ───────────────────────────────────────────────────────
 
     def _trigger_reboot(self, page: Page) -> Optional[RebootOutcome]:
         """
-        Klickt den Power/Logout-Button und wählt 'Reboot'.
-        Fängt Playback-Popup ab.
+        Power/Logout-Button → Power-Dialog → Reboot.
+        Danach: Playback-Popup abfangen (ROTE GRENZE).
         """
-        # Power-Button finden
+        # Power-Button (nav "Logout") finden
         try:
-            power_btn = page.locator(self.SEL_POWER_BUTTON).first
-            power_btn.wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
+            page.locator(self.SEL_POWER_BUTTON).first.wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
         except PlaywrightTimeout:
             self.take_screenshot_on_error(page, "ims3000_power_btn_not_found")
-            return RebootOutcome(
-                result=RebootResult.UI_UNCLEAR,
-                message="IMS3000 Power/Logout-Button nicht gefunden.",
-            )
+            return RebootOutcome(result=RebootResult.UI_UNCLEAR,
+                                 message="IMS3000 Power/Logout-Button nicht gefunden.")
 
         if self.dry_run:
             self.logger.info(
-                f"[{self.cinema_name}] [DRY-RUN] IMS3000 Power-Button gefunden. "
-                "Klick übersprungen."
-            )
+                f"[{self.cinema_name}] [DRY-RUN] IMS3000 Power-Button gefunden – Klick übersprungen.")
             return None
 
-        # Power-Button klicken
+        # Power-Button klicken (nav-Logout, öffnet Power-Dialog)
         page.locator(self.SEL_POWER_BUTTON).first.click()
         self.logger.info(f"[{self.cinema_name}] IMS3000 Power/Logout-Button geklickt.")
         time.sleep(1)
 
-        # Power-Dialog prüfen: Reboot-Option muss sichtbar sein
+        # Power-Dialog "IMS3000 - Power management" abwarten
         try:
-            reboot_option = page.locator(self.SEL_DIALOG_REBOOT)
-            reboot_option.wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
+            page.locator(self.SEL_DIALOG_TITLE).wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
         except PlaywrightTimeout:
-            self.take_screenshot_on_error(page, "ims3000_reboot_option_not_found")
-            return RebootOutcome(
-                result=RebootResult.UI_UNCLEAR,
-                message="IMS3000 'Reboot'-Option im Power-Dialog nicht gefunden.",
-            )
+            self.take_screenshot_on_error(page, "ims3000_dialog_not_found")
+            return RebootOutcome(result=RebootResult.UI_UNCLEAR,
+                                 message="IMS3000 Power-Dialog nicht erschienen.")
 
-        # Sicherheitslog: Was ist im Dialog sichtbar?
+        # Reboot-Button im Dialog finden
+        try:
+            page.locator(self.SEL_DIALOG_REBOOT).wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
+        except PlaywrightTimeout:
+            self.take_screenshot_on_error(page, "ims3000_reboot_btn_not_found")
+            if page.locator(self.SEL_DIALOG_CLOSE).count() > 0:
+                page.locator(self.SEL_DIALOG_CLOSE).click()
+            return RebootOutcome(result=RebootResult.UI_UNCLEAR,
+                                 message="IMS3000 'Reboot'-Button im Dialog nicht gefunden.")
+
+        # Sicherheitslog
         self.logger.debug(
-            f"IMS3000 Power-Dialog erkannt: "
+            f"IMS3000 Power-Dialog: "
             f"Reboot={page.locator(self.SEL_DIALOG_REBOOT).count() > 0}, "
             f"Standby={page.locator(self.SEL_DIALOG_STANDBY).count() > 0}, "
             f"Shutdown={page.locator(self.SEL_DIALOG_SHUTDOWN).count() > 0}"
         )
 
-        # NUR "Reboot" klicken
-        page.locator(self.SEL_DIALOG_REBOOT).first.click()
+        # ✅ NUR "Reboot" klicken
+        page.locator(self.SEL_DIALOG_REBOOT).click()
         self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
         time.sleep(1)
 
-        # ── KRITISCH: Playback-Popup abfangen ────────────────────────────
+        # ── KRITISCHE PHASE: Playback-Popup abfangen ──────────────────────────
         popup_outcome = self._handle_popup(page)
         if popup_outcome is not None:
             return popup_outcome
 
-        # Countdown abwarten (NICHTS klicken)
+        # Kein Popup → Countdown abwarten (nichts klicken)
+        self.logger.info(f"[{self.cinema_name}] Kein Playback-Popup → IMS3000 Reboot läuft.")
         self._wait_for_countdown(page)
-
         return None
 
     def _handle_popup(self, page: Page) -> Optional[RebootOutcome]:
         """
-        IMS3000 Playback-Popup abfangen.
-        ROTE GRENZE: Nur Abbrechen, niemals OK.
+        ⛔ ROTE GRENZE: IMS3000 Playback-Popup abfangen.
+        Klickt SOFORT 'Abbrechen', NIEMALS 'OK'.
         """
-        playback_warning_texts = [
-            "text=Playback is currently running",
-            "text=Do you really want to reboot",
-            "text=Playback läuft",
-        ]
-
-        popup_detected = False
-        for selector in playback_warning_texts:
-            if page.locator(selector).count() > 0:
-                popup_detected = True
-                break
-
-        if not popup_detected:
-            return None
+        if page.locator(self.SEL_POPUP_PLAYBACK_TEXT).count() == 0:
+            return None  # Kein Popup → OK
 
         # ⛔ POPUP ERKANNT
         self.logger.critical(
             f"[{self.cinema_name}] ⛔ IMS3000 PLAYBACK-POPUP ERKANNT! "
-            "Klicke sofort 'Abbrechen'!"
-        )
+            "Klicke sofort 'Abbrechen'!")
         self.take_screenshot_on_error(page, "ims3000_playback_popup")
 
-        cancel_selectors = [
-            "text=Abbrechen",
-            "text=Cancel",
-            "button:has-text('Abbrechen')",
-            "button:has-text('Cancel')",
-        ]
-        for sel in cancel_selectors:
+        if page.locator(self.SEL_POPUP_OK).count() > 0:
+            self.logger.critical(
+                f"[{self.cinema_name}] OK-Button sichtbar – wird NICHT geklickt!")
+
+        try:
+            page.locator(self.SEL_POPUP_CANCEL).click(timeout=5_000)
+            self.logger.critical(
+                f"[{self.cinema_name}] ✓ IMS3000 'Abbrechen' geklickt – Reboot verhindert!")
+        except Exception as e:
+            self.logger.error(f"[{self.cinema_name}] 'Abbrechen'-Klick fehlgeschlagen: {e}")
             try:
-                btn = page.locator(sel).first
-                if btn.count() > 0:
-                    btn.click()
-                    self.logger.critical(
-                        f"[{self.cinema_name}] ✓ IMS3000 'Abbrechen' geklickt – Reboot verhindert!"
-                    )
-                    break
-            except Exception as e:
-                self.logger.error(f"IMS3000 Abbrechen fehlgeschlagen ({sel}): {e}")
+                page.reload(timeout=self.PAGE_LOAD_TIMEOUT_MS)
+            except Exception:
+                pass
 
         return RebootOutcome(
             result=RebootResult.BLOCKED_BY_PLAYBACK,
-            message="IMS3000 Playback-Popup erkannt – Abbrechen geklickt.",
+            message="IMS3000 Playback-Popup erkannt – 'Abbrechen' geklickt. Kein Reboot.",
         )
 
     def _wait_for_countdown(self, page: Page) -> None:
-        """Wartet auf IMS3000 Countdown (NICHTS klicken)."""
+        """Wartet auf IMS3000 Countdown-Text. Nichts klicken!"""
         try:
-            page.locator(self.SEL_COUNTDOWN).first.wait_for(timeout=10_000)
+            page.locator(self.SEL_COUNTDOWN).wait_for(timeout=10_000)
             self.logger.info(
-                f"[{self.cinema_name}] IMS3000 Countdown erkannt – warte (nichts klicken)..."
-            )
+                f"[{self.cinema_name}] IMS3000 Countdown erkannt "
+                "('System will reboot in...') – warte, nichts klicken.")
         except PlaywrightTimeout:
             self.logger.debug("IMS3000 Countdown nicht erkannt – Reboot läuft vermutlich.")
 
+    # ── Post-Login ────────────────────────────────────────────────────────────
+
     def _post_login(self, page: Page) -> Optional[RebootOutcome]:
-        """Nach IMS3000 Reboot: Login-Seite öffnen und einloggen."""
+        """
+        Nach IMS3000 Reboot: Login-Seite laden und einloggen.
+        IMS3000 zeigt nach Reboot direkt die Login-Seite /web/login.php
+        (kein spezieller "Server is ready"-Screen wie bei Doremi).
+        """
         try:
             page.goto(self.base_url(), timeout=self.PAGE_LOAD_TIMEOUT_MS)
             page.wait_for_load_state("networkidle", timeout=self.PAGE_LOAD_TIMEOUT_MS)
         except PlaywrightTimeout:
-            return RebootOutcome(
-                result=RebootResult.TIMEOUT,
-                message="IMS3000 Post-Login: Seite nach Reboot nicht ladbar.",
-            )
+            return RebootOutcome(result=RebootResult.TIMEOUT,
+                                 message="IMS3000 Post-Login: Seite nach Reboot nicht ladbar.")
 
         outcome = self._login(page)
         if outcome is not None:
@@ -376,5 +349,5 @@ class IMS3000Handler(BaseHandler):
                 message=f"IMS3000 Post-Login fehlgeschlagen: {outcome.message}",
             )
 
-        self.logger.info(f"[{self.cinema_name}] IMS3000 Post-Login erfolgreich.")
+        self.logger.info(f"[{self.cinema_name}] IMS3000 Post-Login erfolgreich ✓")
         return None
