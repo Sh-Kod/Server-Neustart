@@ -114,7 +114,7 @@ settings:
   dry_run: true
 
   # Wartezeit nach Reboot-Auslösung, bis Server wieder erreichbar sein muss (Minuten)
-  reboot_wait_minutes: 10
+  reboot_wait_minutes: 4
 
   # Maximale Wartezeit gesamt (Minuten) – danach gilt Reboot als "unklar"
   reboot_timeout_minutes: 20
