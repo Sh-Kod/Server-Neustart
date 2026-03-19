@@ -101,9 +101,9 @@ maintenance_window:
 # Telegram Bot-Konfiguration
 # Bot-Token erhältst du von @BotFather, Chat-ID von @userinfobot
 telegram:
-  bot_token: "DEIN_BOT_TOKEN_HIER"
-  chat_id: "DEINE_CHAT_ID_HIER"
-  enabled: false   # Auf true setzen, wenn Bot konfiguriert ist
+  bot_token: "8743335607:AAEsEm12jQ0h-wYRhVuTSMBTFOkfQOqMBUQ"
+  chat_id: "479976191"
+  enabled: true   # Auf true setzen, wenn Bot konfiguriert ist
   # Weitere autorisierte Chat-IDs (optional, leer = nur chat_id oben gilt)
   admin_chat_ids: []
 
