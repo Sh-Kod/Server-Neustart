@@ -135,3 +135,25 @@ class Config:
     @property
     def local_alarm_enabled(self) -> bool:
         return self._raw["settings"].get("local_alarm_enabled", True)
+
+    # ── Wartungsfenster: erlaubte Wochentage ─────────────────────────────────
+
+    @property
+    def allowed_days(self) -> list[str]:
+        """Erlaubte Wochentage als Kurzliste (z.B. ['Mo','Di']).
+        Leere Liste oder nicht gesetzt = alle Tage erlaubt."""
+        return self._raw["maintenance_window"].get("allowed_days", []) or []
+
+    @property
+    def allowed_days_str(self) -> str:
+        """Lesbare Darstellung, z.B. 'Mo, Di, Mi' oder 'Alle Tage'."""
+        days = self.allowed_days
+        return ", ".join(days) if days else "Alle Tage"
+
+    # ── Telegram: mehrere autorisierte Chat-IDs ───────────────────────────────
+
+    @property
+    def telegram_admin_chat_ids(self) -> list[str]:
+        """Liste autorisierter Chat-IDs. Leer → nur telegram_chat_id gilt."""
+        raw = self._raw["telegram"].get("admin_chat_ids", []) or []
+        return [str(x) for x in raw]

@@ -1,7 +1,7 @@
 """
 Cinema Server Reboot – Hauptprogramm
 
-Startet die Scheduling-Schleife. Läuft als Windows-Hintergrundprozess.
+Startet die Scheduling-Schleife und den Telegram-Controller.
 
 Verwendung:
   python main.py                    # Normaler Start
@@ -11,20 +11,23 @@ Verwendung:
 """
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
 
+from cinema_reboot.app_state import AppState
 from cinema_reboot.config import Config
 from cinema_reboot.logger_setup import setup_logging
 from cinema_reboot.reboot_engine import RebootEngine
 from cinema_reboot.scheduler import Scheduler
 from cinema_reboot.state_manager import StateManager
+from cinema_reboot.telegram_controller import TelegramController
 from cinema_reboot.telegram_sender import TelegramSender
 
 logger = logging.getLogger(__name__)
 
-# Globales Flag für sauberes Beenden
+# Globales Flag für sauberes Beenden (SIGINT/SIGTERM)
 _running = True
 
 
@@ -34,13 +37,23 @@ def handle_shutdown(sig, frame):
     _running = False
 
 
-def build_components(config: Config):
+def build_components(config: Config, config_path: str):
     """Erstellt alle Kern-Komponenten."""
+    app_state = AppState(timezone=config.timezone)
     state = StateManager(config.state_file)
     telegram = TelegramSender(config)
     scheduler = Scheduler(config, state)
     engine = RebootEngine(config, state, scheduler, telegram)
-    return state, telegram, scheduler, engine
+    controller = None
+    if config.telegram_enabled:
+        controller = TelegramController(
+            config=config,
+            app_state=app_state,
+            state_manager=state,
+            scheduler=scheduler,
+            config_path=config_path,
+        )
+    return app_state, state, telegram, scheduler, engine, controller
 
 
 def cmd_status(config: Config, state: StateManager, scheduler: Scheduler) -> None:
@@ -54,6 +67,7 @@ def cmd_status(config: Config, state: StateManager, scheduler: Scheduler) -> Non
     print(f"  Cinema Reboot – Status  ({now.strftime('%d.%m.%Y %H:%M:%S')})")
     print(f"  Modus: {'⚠️  DRY-RUN' if config.dry_run else '✅ LIVE'}")
     print(f"  Wartungsfenster: {config.mw_start} – {config.mw_end} ({config.timezone})")
+    print(f"  Erlaubte Tage:   {config.allowed_days_str}")
     print(f"  Im Wartungsfenster: {'JA' if scheduler.in_maintenance_window() else 'nein'}")
     print(f"{'═' * 60}")
 
@@ -81,9 +95,10 @@ def cmd_status(config: Config, state: StateManager, scheduler: Scheduler) -> Non
             "in_progress": "🔄",
         }.get(status, "?")
 
+        done_mark = " ✓" if done_today else ""
         print(
             f"  {status_icon} {name:<10} | "
-            f"Status: {status:<22} | "
+            f"Status: {status:<22}{done_mark} | "
             f"Geplant: {sched_str} | "
             f"Next-Retry: {retry_str} | "
             f"Letzter Erfolg: {last_success}"
@@ -104,14 +119,22 @@ def cmd_run_single(config: Config, cinema_id: str, engine: RebootEngine) -> None
     print(f"Ergebnis: {outcome.result.value} – {outcome.message}")
 
 
-def main_loop(config: Config, state: StateManager, scheduler: Scheduler, engine: RebootEngine) -> None:
+def main_loop(
+    config: Config,
+    app_state: AppState,
+    state: StateManager,
+    scheduler: Scheduler,
+    engine: RebootEngine,
+) -> None:
     """Hauptschleife – läuft dauerhaft und startet Reboots nach Plan."""
     global _running
 
     logger.info("=" * 60)
     logger.info("  Cinema Server Reboot gestartet")
+    logger.info(f"  Version: {app_state.version}")
     logger.info(f"  Modus: {'DRY-RUN ⚠️' if config.dry_run else 'LIVE ✅'}")
     logger.info(f"  Wartungsfenster: {config.mw_start}–{config.mw_end} ({config.timezone})")
+    logger.info(f"  Erlaubte Tage:   {config.allowed_days_str}")
     logger.info(f"  Kinos konfiguriert: {len(config.cinemas)}")
     logger.info("=" * 60)
 
@@ -123,23 +146,50 @@ def main_loop(config: Config, state: StateManager, scheduler: Scheduler, engine:
 
     logger.info(scheduler.summary())
 
-    interval = config.main_loop_interval_seconds
+    import pytz
+    from datetime import datetime
 
-    while _running:
+    interval = config.main_loop_interval_seconds
+    _last_scheduler_restart = app_state.last_scheduler_restart
+
+    while _running and not app_state.shutdown_requested:
         # Tagesreset für alle Kinos prüfen
-        import pytz
-        from datetime import datetime
         today = datetime.now(pytz.timezone(config.timezone)).strftime("%Y-%m-%d")
         for cinema in config.cinemas:
             state.reset_for_new_day(cinema["id"], today)
 
-        # Welche Kinos sind dran?
-        due = scheduler.get_cinemas_due()
+        # Scheduler-Neustart via Telegram?
+        current_restart = app_state.last_scheduler_restart
+        if current_restart is not None and current_restart != _last_scheduler_restart:
+            scheduler._today_schedule = {}
+            scheduler._build_schedule()
+            _last_scheduler_restart = current_restart
+            logger.info("Scheduler neu gestartet (via Telegram).")
 
+        # Automatisierung pausiert?
+        if app_state.paused:
+            logger.debug("Automatisierung pausiert – überspringe Zyklus.")
+            _sleep_interruptible(interval, app_state)
+            continue
+
+        # Sofort-Läufe via Telegram?
+        pending = app_state.pop_pending_runs()
+        if pending:
+            cinemas_map = {c["id"]: c for c in config.cinemas}
+            for cid in pending:
+                cinema = cinemas_map.get(cid)
+                if cinema:
+                    logger.info(f"━━━ Sofort-Reboot (Telegram): {cinema['name']} ━━━")
+                    engine.run(cinema)
+                else:
+                    logger.warning(f"Sofort-Reboot: Kino '{cid}' nicht gefunden.")
+
+        # Welche Kinos sind planmäßig dran?
+        due = scheduler.get_cinemas_due()
         if due:
             logger.info(f"Fällige Kinos: {[c['name'] for c in due]}")
             for cinema in due:
-                if not _running:
+                if not _running or app_state.shutdown_requested:
                     break
                 logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
                 engine.run(cinema)
@@ -149,13 +199,18 @@ def main_loop(config: Config, state: StateManager, scheduler: Scheduler, engine:
             else:
                 logger.debug("Außerhalb des Wartungsfensters – warte...")
 
-        # Warten bis zum nächsten Prüfzyklus
-        for _ in range(interval):
-            if not _running:
-                break
-            time.sleep(1)
+        _sleep_interruptible(interval, app_state)
 
     logger.info("Cinema Server Reboot beendet.")
+
+
+def _sleep_interruptible(seconds: int, app_state: AppState) -> None:
+    """Schläft in 1-Sekunden-Schritten, bis Zeit abgelaufen oder Stop angefordert."""
+    global _running
+    for _ in range(seconds):
+        if not _running or app_state.shutdown_requested:
+            break
+        time.sleep(1)
 
 
 def main():
@@ -175,7 +230,7 @@ def main():
     parser.add_argument(
         "--run",
         metavar="KINO_ID",
-        help="Führt sofort einen Reboot für das angegebene Kino durch (z.B. kino01)",
+        help="Führt sofort einen Reboot für das angegebene Kino durch",
     )
     parser.add_argument(
         "--dry-run",
@@ -189,9 +244,11 @@ def main():
     )
     args = parser.parse_args()
 
+    config_path = os.path.abspath(args.config)
+
     # Konfiguration laden
     try:
-        config = Config(args.config)
+        config = Config(config_path)
     except (FileNotFoundError, ValueError) as e:
         print(f"Konfigurationsfehler: {e}")
         sys.exit(1)
@@ -206,13 +263,15 @@ def main():
         logger.warning("Dry-Run via Kommandozeile aktiviert.")
 
     # Komponenten erstellen
-    state, telegram, scheduler, engine = build_components(config)
+    app_state, state, telegram, scheduler, engine, controller = build_components(
+        config, config_path
+    )
 
     # Signal-Handler für sauberes Beenden (CTRL+C, Windows-Shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
-    # Kommando ausführen
+    # Einmalige Befehle
     if args.status:
         cmd_status(config, state, scheduler)
         return
@@ -221,8 +280,19 @@ def main():
         cmd_run_single(config, args.run, engine)
         return
 
-    # Standard: Hauptschleife
-    main_loop(config, state, scheduler, engine)
+    # Telegram-Controller starten (falls aktiviert)
+    if controller:
+        controller.start()
+        logger.info("Telegram-Bot aktiv und wartet auf Nachrichten.")
+    else:
+        logger.info("Telegram-Bot deaktiviert (telegram.enabled = false).")
+
+    # Hauptschleife
+    try:
+        main_loop(config, app_state, state, scheduler, engine)
+    finally:
+        if controller:
+            controller.stop()
 
 
 if __name__ == "__main__":

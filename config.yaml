@@ -94,6 +94,9 @@ maintenance_window:
   start: "03:00"
   end: "06:00"
   timezone: "Europe/Berlin"
+  # Erlaubte Wochentage (leer = alle Tage aktiv)
+  # Beispiel: [Mo, Di, Mi, Do, Fr]  ← nur Werktage
+  allowed_days: []
 
 # Telegram Bot-Konfiguration
 # Bot-Token erhältst du von @BotFather, Chat-ID von @userinfobot
@@ -101,6 +104,8 @@ telegram:
   bot_token: "DEIN_BOT_TOKEN_HIER"
   chat_id: "DEINE_CHAT_ID_HIER"
   enabled: false   # Auf true setzen, wenn Bot konfiguriert ist
+  # Weitere autorisierte Chat-IDs (optional, leer = nur chat_id oben gilt)
+  admin_chat_ids: []
 
 # Programm-Einstellungen
 settings:

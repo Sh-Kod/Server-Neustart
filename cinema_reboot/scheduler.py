@@ -55,7 +55,15 @@ class Scheduler:
         now = self._now()
         window_start = self._parse_time(self._config.mw_start, now)
         window_end = self._parse_time(self._config.mw_end, now)
-        return window_start <= now < window_end
+        if not (window_start <= now < window_end):
+            return False
+        # Wochentag-Filter (leere Liste = alle Tage erlaubt)
+        allowed_days = self._config.allowed_days
+        if allowed_days:
+            day_abbr = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][now.weekday()]
+            if day_abbr not in allowed_days:
+                return False
+        return True
 
     def get_window_end(self) -> datetime:
         now = self._now()
