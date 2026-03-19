@@ -10,19 +10,19 @@ cinemas:
     name: "Kino 01"
     ip: "172.20.21.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino02
     name: "Kino 02"
     ip: "172.20.22.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino03
     name: "Kino 03"
     ip: "172.20.23.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino04
     name: "Kino 04"
@@ -34,55 +34,55 @@ cinemas:
     name: "Kino 05"
     ip: "172.20.25.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino06
     name: "Kino 06"
     ip: "172.20.26.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino07
     name: "Kino 07"
     ip: "172.20.27.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino08
     name: "Kino 08"
     ip: "172.20.28.11"
     type: "ims3000"
-    enabled: true
+    enabled: false
 
   - id: kino09
     name: "Kino 09"
     ip: "172.20.29.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino10
     name: "Kino 10"
     ip: "172.20.30.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino11
     name: "Kino 11"
     ip: "172.20.31.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino12
     name: "Kino 12"
     ip: "172.20.32.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino13
     name: "Kino 13"
     ip: "172.20.33.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
 # Login-Daten (gelten für alle Kinos)
 credentials:
@@ -126,7 +126,7 @@ settings:
   http_timeout_seconds: 10
 
   # Browser sichtbar oder headless (true = unsichtbar im Hintergrund)
-  headless: true
+  headless: false
 
   # Log-Verzeichnis (relativ zum Programmordner)
   log_dir: "logs"
