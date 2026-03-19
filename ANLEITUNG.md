@@ -56,7 +56,33 @@ telegram:
   bot_token: "1234567890:ABCdef..."
   chat_id: "987654321"
   enabled: true
+  # Optional: weitere autorisierte Chat-IDs (z.B. Kollegen)
+  admin_chat_ids: []
 ```
+
+---
+
+## Telegram-Steuerung
+
+Sobald der Bot läuft, kannst du folgende Befehle senden:
+
+| Befehl | Funktion |
+|--------|----------|
+| `1` | Status aller Kinos anzeigen |
+| `2` oder `/start` | Hauptmenü öffnen |
+| `3` | Automatisierung **pausieren** |
+| `4` | Automatisierung **fortsetzen** |
+| `5` | Wartungsfenster ändern (Start, Ende, Wochentage) |
+| `6` | Server konfigurieren (bearbeiten / hinzufügen / deaktivieren) |
+| `7` | Zugangsdaten ändern |
+| `8` | Sofort-Reboot für ein bestimmtes Kino auslösen |
+| `9` | Scheduler neu starten (neuer Tagesplan) |
+| `10` | Programm beenden |
+
+**Abbrechen:** Schreibe `0` oder `/abbrechen` während eines laufenden Dialogs.
+
+> **Hinweis:** Alle Konfigurationsänderungen (Befehl 5, 6, 7) werden sofort in
+> `config.yaml` gespeichert und sind nach einem Neustart weiterhin aktiv.
 
 ---
 
@@ -165,8 +191,12 @@ cinema-reboot/
 └── cinema_reboot/
     ├── config.py            ← Konfigurationsmodul
     ├── state_manager.py     ← Zustandsverwaltung
-    ├── scheduler.py         ← Planung & Timing
-    ├── telegram_sender.py   ← Telegram-Benachrichtigungen
+    ├── scheduler.py         ← Planung & Timing (inkl. Wochentag-Filter)
+    ├── app_state.py         ← Gemeinsamer Laufzeit-Zustand (pause/resume)
+    ├── telegram_sender.py   ← Automatische Telegram-Benachrichtigungen
+    ├── telegram_controller.py ← Telegram-Bot für Fernsteuerung
+    ├── dialog_manager.py    ← Zustandsmaschine für mehrstufige Dialoge
+    ├── config_writer.py     ← Live-Änderungen an config.yaml
     ├── notifier.py          ← Lokale Alarme (Windows)
     ├── reboot_engine.py     ← Orchestrierung
     ├── logger_setup.py      ← Logging
