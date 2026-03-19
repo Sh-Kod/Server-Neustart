@@ -1,0 +1,136 @@
+# ============================================================
+# Cinema Server Reboot - Konfiguration
+# ============================================================
+# WICHTIG: Diese Datei enthält Zugangsdaten (Klartext).
+# Nur auf dem Betriebsrechner ablegen, NICHT öffentlich teilen.
+# ============================================================
+
+cinemas:
+  - id: kino01
+    name: "Kino 01"
+    ip: "172.20.21.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino02
+    name: "Kino 02"
+    ip: "172.20.22.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino03
+    name: "Kino 03"
+    ip: "172.20.23.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino04
+    name: "Kino 04"
+    ip: "172.20.24.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino05
+    name: "Kino 05"
+    ip: "172.20.25.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino06
+    name: "Kino 06"
+    ip: "172.20.26.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino07
+    name: "Kino 07"
+    ip: "172.20.27.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino08
+    name: "Kino 08"
+    ip: "172.20.28.11"
+    type: "ims3000"
+    enabled: true
+
+  - id: kino09
+    name: "Kino 09"
+    ip: "172.20.29.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino10
+    name: "Kino 10"
+    ip: "172.20.30.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino11
+    name: "Kino 11"
+    ip: "172.20.31.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino12
+    name: "Kino 12"
+    ip: "172.20.32.11"
+    type: "doremi"
+    enabled: true
+
+  - id: kino13
+    name: "Kino 13"
+    ip: "172.20.33.11"
+    type: "doremi"
+    enabled: true
+
+# Login-Daten (gelten für alle Kinos)
+credentials:
+  username: "admin"
+  password: "1234"
+
+# Wartungsfenster (Zeitzone beachten!)
+maintenance_window:
+  start: "03:00"
+  end: "06:00"
+  timezone: "Europe/Berlin"
+
+# Telegram Bot-Konfiguration
+# Bot-Token erhältst du von @BotFather, Chat-ID von @userinfobot
+telegram:
+  bot_token: "DEIN_BOT_TOKEN_HIER"
+  chat_id: "DEINE_CHAT_ID_HIER"
+  enabled: false   # Auf true setzen, wenn Bot konfiguriert ist
+
+# Programm-Einstellungen
+settings:
+  # DRY_RUN = true → Programm navigiert und erkennt Zustände, klickt aber NICHT auf Reboot
+  # Erst auf false setzen, wenn du das Programm vollständig getestet hast!
+  dry_run: true
+
+  # Wartezeit nach Reboot-Auslösung, bis Server wieder erreichbar sein muss (Minuten)
+  reboot_wait_minutes: 10
+
+  # Maximale Wartezeit gesamt (Minuten) – danach gilt Reboot als "unklar"
+  reboot_timeout_minutes: 20
+
+  # Wartezeit zwischen Wiederholungsversuchen bei Blockierung (Minuten)
+  retry_interval_minutes: 60
+
+  # HTTP-Timeout für Erreichbarkeitscheck (Sekunden)
+  http_timeout_seconds: 10
+
+  # Browser sichtbar oder headless (true = unsichtbar im Hintergrund)
+  headless: true
+
+  # Log-Verzeichnis (relativ zum Programmordner)
+  log_dir: "logs"
+
+  # State-Datei für Persistenz (relativ zum Programmordner)
+  state_file: "state.json"
+
+  # Lokaler Alarm bei Playback-Blockierung (Windows-Benachrichtigung + Ton)
+  local_alarm_enabled: true
+
+  # Hauptschleifen-Intervall in Sekunden (wie oft der Scheduler prüft)
+  main_loop_interval_seconds: 60
