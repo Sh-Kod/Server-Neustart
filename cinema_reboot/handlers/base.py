@@ -148,10 +148,18 @@ class BaseHandler(ABC):
             return False
 
     def take_screenshot_on_error(self, page: Page, filename: str) -> None:
-        """Erstellt einen Screenshot zur Fehlerdiagnose."""
+        """Erstellt einen Screenshot und HTML-Dump zur Fehlerdiagnose."""
         try:
             path = f"logs/screenshot_{self.cinema_id}_{filename}.png"
             page.screenshot(path=path)
             self.logger.info(f"Screenshot gespeichert: {path}")
         except Exception as e:
             self.logger.debug(f"Screenshot fehlgeschlagen: {e}")
+        try:
+            html_path = f"logs/dump_{self.cinema_id}_{filename}.html"
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(f"<!-- URL: {page.url} -->\n")
+                f.write(page.content())
+            self.logger.info(f"HTML-Dump gespeichert: {html_path}")
+        except Exception as e:
+            self.logger.debug(f"HTML-Dump fehlgeschlagen: {e}")
