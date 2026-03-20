@@ -176,10 +176,8 @@ class IMS3000Handler(BaseHandler):
             return RebootOutcome(result=RebootResult.LOGIN_FAILED,
                                  message="IMS3000 Login-Timeout.")
 
-        # Login-Erfolg: Power-Button muss sichtbar sein
-        try:
-            page.locator(self.SEL_POWER_BUTTON).wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
-        except PlaywrightTimeout:
+        # Login-Erfolg prüfen: Power-Button in DOM ODER Login-Form verschwunden
+        if page.locator(self.SEL_POWER_BUTTON).count() == 0:
             if page.locator(self.SEL_USERNAME_INPUT).count() > 0:
                 self.take_screenshot_on_error(page, "ims3000_login_failed")
                 return RebootOutcome(result=RebootResult.LOGIN_FAILED,
@@ -224,10 +222,8 @@ class IMS3000Handler(BaseHandler):
         Power/Logout-Button → Power-Dialog → Reboot.
         Danach: Playback-Popup abfangen (ROTE GRENZE).
         """
-        # Power-Button (nav "Logout") finden
-        try:
-            page.locator(self.SEL_POWER_BUTTON).first.wait_for(timeout=self.ELEMENT_TIMEOUT_MS)
-        except PlaywrightTimeout:
+        # Power-Button (nav "Logout") finden – count() wie Pre-Check (kein visibility-Check)
+        if page.locator(self.SEL_POWER_BUTTON).count() == 0:
             self.take_screenshot_on_error(page, "ims3000_power_btn_not_found")
             return RebootOutcome(result=RebootResult.UI_UNCLEAR,
                                  message="IMS3000 Power/Logout-Button nicht gefunden.")
@@ -237,8 +233,8 @@ class IMS3000Handler(BaseHandler):
                 f"[{self.cinema_name}] [DRY-RUN] IMS3000 Power-Button gefunden – Klick übersprungen.")
             return None
 
-        # Power-Button klicken (nav-Logout, öffnet Power-Dialog)
-        page.locator(self.SEL_POWER_BUTTON).first.click()
+        # Power-Button klicken – force=True umgeht CSS-Visibility-Prüfung
+        page.locator(self.SEL_POWER_BUTTON).first.click(force=True)
         self.logger.info(f"[{self.cinema_name}] IMS3000 Power/Logout-Button geklickt.")
         time.sleep(1)
 
