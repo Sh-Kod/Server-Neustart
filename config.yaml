@@ -28,7 +28,7 @@ cinemas:
     name: "Kino 04"
     ip: "172.20.24.11"
     type: "doremi"
-    enabled: true
+    enabled: false
 
   - id: kino05
     name: "Kino 05"
@@ -52,7 +52,7 @@ cinemas:
     name: "Kino 08"
     ip: "172.20.28.11"
     type: "ims3000"
-    enabled: false
+    enabled: true
 
   - id: kino09
     name: "Kino 09"
