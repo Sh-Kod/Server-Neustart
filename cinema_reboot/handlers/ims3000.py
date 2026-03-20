@@ -53,7 +53,7 @@ class IMS3000Handler(BaseHandler):
     # HINWEIS: Dieser Button heißt "Logout" aber öffnet das Power-Menü.
     # Er wird geklickt BEVOR der Dialog offen ist, daher kein Konflikt
     # mit dem "Logout"-Button im Dialog selbst.
-    SEL_POWER_BUTTON = "a:has-text('Logout'), button:has-text('Logout')"
+    SEL_POWER_BUTTON = "#header-logout"
 
     # ── Power-Dialog "IMS3000 - Power management" ─────────────────────────────
     SEL_DIALOG_TITLE    = "text=IMS3000 - Power management"
