@@ -67,6 +67,7 @@ class TelegramController:
 
     def start(self) -> None:
         """Startet den Controller in einem Hintergrund-Thread."""
+        self._skip_pending_updates()
         self._running = True
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -75,6 +76,25 @@ class TelegramController:
         )
         self._thread.start()
         logger.info("Telegram-Controller gestartet.")
+
+    def _skip_pending_updates(self) -> None:
+        """Überspringt alle ausstehenden Telegram-Nachrichten beim Start.
+        Verhindert, dass alte Nachrichten nach einem Neustart erneut verarbeitet werden."""
+        try:
+            resp = self._session.get(
+                f"{self._base_url}/getUpdates",
+                params={"offset": -1, "timeout": 0},
+                timeout=10,
+            )
+            if resp.ok:
+                updates = resp.json().get("result", [])
+                if updates:
+                    self._offset = updates[-1]["update_id"] + 1
+                    logger.info(f"Alte Telegram-Nachrichten übersprungen (Offset: {self._offset}).")
+                else:
+                    logger.info("Keine ausstehenden Telegram-Nachrichten.")
+        except Exception as e:
+            logger.warning(f"Fehler beim Überspringen alter Nachrichten: {e}")
 
     def stop(self) -> None:
         """Beendet den Controller-Thread."""
