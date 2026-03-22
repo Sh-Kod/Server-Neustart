@@ -12,8 +12,9 @@ UI-Flow (bestätigt durch Screenshots):
      → Power-Button oben rechts: roter "⏻ Logout"-Button (öffnet Power-Menü)
   3. Power-Dialog: "IMS3000 - Power management"
      → Standby ❌ | Reboot ✅ | Shutdown ❌ | Logout ❌ | Close (Abbruch)
-  4. Playback-Popup (ROTE GRENZE): "Playback is currently running!"
-     → OK ❌ NIEMALS | Abbrechen ✅ SOFORT
+  4. Popups nach Reboot-Klick (ROTE GRENZE):
+     - "Playback is currently running!" → OK ❌ NIEMALS | Abbrechen ✅ SOFORT
+     - "Ingest is currently running!"   → OK ❌ NIEMALS | Abbrechen ✅ SOFORT
   5. Countdown: "System will reboot in X seconds. Cancel"
      → Nichts klicken, einfach warten
   6. Restarting:
@@ -70,8 +71,9 @@ class IMS3000Handler(BaseHandler):
     # "Show playlist" erscheint NUR wenn ein Film aktiv läuft → BLOCKED_BY_PLAYBACK
     SEL_PLAYBACK_ACTIVE = "text=Show playlist"
 
-    # ── Playback-Popup (ROTE GRENZE) ──────────────────────────────────────────
+    # ── Popups nach Reboot-Klick (ROTE GRENZE) ───────────────────────────────
     SEL_POPUP_PLAYBACK_TEXT = "text=Playback is currently running"
+    SEL_POPUP_INGEST_TEXT   = "text=Ingest is currently running"
     SEL_POPUP_CANCEL        = "button:has-text('Abbrechen')"  # ✅ SOFORT KLICKEN
     SEL_POPUP_OK            = "button:has-text('OK')"         # ❌ NIEMALS KLICKEN
 
@@ -297,17 +299,35 @@ class IMS3000Handler(BaseHandler):
 
     def _handle_popup(self, page: Page) -> Optional[RebootOutcome]:
         """
-        ⛔ ROTE GRENZE: IMS3000 Playback-Popup abfangen.
+        ⛔ ROTE GRENZE: Playback- oder Ingest-Popup nach Reboot-Klick abfangen.
         Klickt SOFORT 'Abbrechen', NIEMALS 'OK'.
+
+        Mögliche Popups:
+          - "Playback is currently running!" → BLOCKED_BY_PLAYBACK
+          - "Ingest is currently running!"   → BLOCKED_BY_TRANSFER
         """
-        if page.locator(self.SEL_POPUP_PLAYBACK_TEXT).count() == 0:
+        playback_popup = page.locator(self.SEL_POPUP_PLAYBACK_TEXT).count() > 0
+        ingest_popup   = page.locator(self.SEL_POPUP_INGEST_TEXT).count() > 0
+
+        if not playback_popup and not ingest_popup:
             return None  # Kein Popup → OK
 
         # ⛔ POPUP ERKANNT
+        if playback_popup:
+            popup_type = "PLAYBACK"
+            result = RebootResult.BLOCKED_BY_PLAYBACK
+            message = "IMS3000 Playback-Popup erkannt – 'Abbrechen' geklickt. Kein Reboot."
+            screenshot_name = "ims3000_playback_popup"
+        else:
+            popup_type = "INGEST"
+            result = RebootResult.BLOCKED_BY_TRANSFER
+            message = "IMS3000 Ingest-Popup erkannt – 'Abbrechen' geklickt. Kein Reboot."
+            screenshot_name = "ims3000_ingest_popup"
+
         self.logger.critical(
-            f"[{self.cinema_name}] ⛔ IMS3000 PLAYBACK-POPUP ERKANNT! "
+            f"[{self.cinema_name}] ⛔ IMS3000 {popup_type}-POPUP ERKANNT! "
             "Klicke sofort 'Abbrechen'!")
-        self.take_screenshot_on_error(page, "ims3000_playback_popup")
+        self.take_screenshot_on_error(page, screenshot_name)
 
         if page.locator(self.SEL_POPUP_OK).count() > 0:
             self.logger.critical(
@@ -324,10 +344,7 @@ class IMS3000Handler(BaseHandler):
             except Exception:
                 pass
 
-        return RebootOutcome(
-            result=RebootResult.BLOCKED_BY_PLAYBACK,
-            message="IMS3000 Playback-Popup erkannt – 'Abbrechen' geklickt. Kein Reboot.",
-        )
+        return RebootOutcome(result=result, message=message)
 
     def _wait_for_countdown(self, page: Page) -> None:
         """Wartet auf IMS3000 Countdown-Text. Nichts klicken!"""
