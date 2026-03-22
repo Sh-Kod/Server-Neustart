@@ -5,8 +5,10 @@ UI-Flow (bestätigt durch Screenshots):
   1. Login-Seite: http://{ip}/web/login.php
      → "Kino 08" / Username / Password / Login-Button
   2. Dashboard: /web/index.php
-     → Playback-Bereich Mitte: "No playback in progress" = sicher
-     → Wenn Film läuft: Zeit läuft, kein "No playback in progress" Text
+     → Playback-Bereich Mitte:
+       - "No playback in progress" sichtbar → kein Film → Reboot OK
+       - "Show playlist" sichtbar → Film läuft aktiv → ABBRUCH (BLOCKED_BY_PLAYBACK)
+       - Keines → UI unklar → konservativ ABBRUCH (UI_UNCLEAR)
      → Power-Button oben rechts: roter "⏻ Logout"-Button (öffnet Power-Menü)
   3. Power-Dialog: "IMS3000 - Power management"
      → Standby ❌ | Reboot ✅ | Shutdown ❌ | Logout ❌ | Close (Abbruch)
@@ -65,6 +67,8 @@ class IMS3000Handler(BaseHandler):
     # ── Pre-Check Playback-Bereich (Mitte des Dashboards) ────────────────────
     # "No playback in progress" MUSS sichtbar sein – sonst kein Reboot
     SEL_NO_PLAYBACK = "text=No playback in progress"
+    # "Show playlist" erscheint NUR wenn ein Film aktiv läuft → BLOCKED_BY_PLAYBACK
+    SEL_PLAYBACK_ACTIVE = "text=Show playlist"
 
     # ── Playback-Popup (ROTE GRENZE) ──────────────────────────────────────────
     SEL_POPUP_PLAYBACK_TEXT = "text=Playback is currently running"
@@ -190,30 +194,42 @@ class IMS3000Handler(BaseHandler):
 
     def _pre_check(self, page: Page) -> Optional[RebootOutcome]:
         """
-        Prüft ob 'No playback in progress' im Playback-Bereich sichtbar ist.
-        Das ist die EINZIGE Freigabe für den Reboot.
+        Prüft den Playback-Status im IMS3000 Dashboard (3-stufig):
+          1. 'No playback in progress' sichtbar → kein Film → Reboot OK
+          2. 'Show playlist' sichtbar → Film läuft aktiv → BLOCKED_BY_PLAYBACK
+          3. Keines von beiden → Zustand unklar → UI_UNCLEAR (konservativ)
         """
         no_playback_visible = page.locator(self.SEL_NO_PLAYBACK).count() > 0
+        playback_active = page.locator(self.SEL_PLAYBACK_ACTIVE).count() > 0
 
         self.logger.info(
             f"[{self.cinema_name}] IMS3000 Pre-Check: "
-            f"'No playback in progress' sichtbar = {no_playback_visible}"
+            f"No-Playback={no_playback_visible}, Playback-Aktiv={playback_active}"
         )
 
-        if not no_playback_visible:
+        if no_playback_visible:
+            self.logger.info(f"[{self.cinema_name}] IMS3000 Pre-Check bestanden ✓")
+            return None
+
+        if playback_active:
             self.logger.warning(
                 f"[{self.cinema_name}] ⛔ IMS3000 PRE-CHECK: "
-                "'No playback in progress' NICHT erkennbar → konservativ abgebrochen.")
-            self.take_screenshot_on_error(page, "ims3000_precheck_failed")
-            # Wir können nicht sicher sagen ob Playback oder UI unklar ist → UI_UNCLEAR
-            # (sicherer als BLOCKED_BY_PLAYBACK, da wir es nicht bestätigen konnten)
+                "'Show playlist' erkannt → Film läuft! ABBRUCH.")
+            self.take_screenshot_on_error(page, "ims3000_precheck_playback_active")
             return RebootOutcome(
-                result=RebootResult.UI_UNCLEAR,
-                message="IMS3000 Pre-Check: 'No playback in progress' nicht sichtbar.",
+                result=RebootResult.BLOCKED_BY_PLAYBACK,
+                message="IMS3000 Pre-Check: Film läuft (Show playlist sichtbar).",
             )
 
-        self.logger.info(f"[{self.cinema_name}] IMS3000 Pre-Check bestanden ✓")
-        return None
+        # Keines der bekannten Zustände erkannt → konservativ abbrechen
+        self.logger.warning(
+            f"[{self.cinema_name}] ⛔ IMS3000 PRE-CHECK: "
+            "Weder 'No playback' noch 'Show playlist' erkannt → UI unklar, abgebrochen.")
+        self.take_screenshot_on_error(page, "ims3000_precheck_unclear")
+        return RebootOutcome(
+            result=RebootResult.UI_UNCLEAR,
+            message="IMS3000 Pre-Check: UI-Zustand nicht erkennbar.",
+        )
 
     # ── Reboot auslösen ───────────────────────────────────────────────────────
 
