@@ -176,23 +176,31 @@ def main_loop(
         pending = app_state.pop_pending_runs()
         if pending:
             cinemas_map = {c["id"]: c for c in config.cinemas}
-            for cid in pending:
-                cinema = cinemas_map.get(cid)
-                if cinema:
-                    logger.info(f"━━━ Sofort-Reboot (Telegram): {cinema['name']} ━━━")
-                    engine.run(cinema)
+            to_run = [cinemas_map[cid] for cid in pending if cid in cinemas_map]
+            unknown = [cid for cid in pending if cid not in cinemas_map]
+            for cid in unknown:
+                logger.warning(f"Sofort-Reboot: Kino '{cid}' nicht gefunden.")
+            if to_run:
+                names = ", ".join(c["name"] for c in to_run)
+                logger.info(f"━━━ Sofort-Reboot (Telegram): {names} ━━━")
+                if config.parallel_reboot and len(to_run) > 1:
+                    engine.run_parallel(to_run)
                 else:
-                    logger.warning(f"Sofort-Reboot: Kino '{cid}' nicht gefunden.")
+                    for cinema in to_run:
+                        engine.run(cinema)
 
         # Welche Kinos sind planmäßig dran?
         due = scheduler.get_cinemas_due()
         if due:
             logger.info(f"Fällige Kinos: {[c['name'] for c in due]}")
-            for cinema in due:
-                if not _running or app_state.shutdown_requested:
-                    break
-                logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
-                engine.run(cinema)
+            if config.parallel_reboot and len(due) > 1:
+                engine.run_parallel(due)
+            else:
+                for cinema in due:
+                    if not _running or app_state.shutdown_requested:
+                        break
+                    logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
+                    engine.run(cinema)
         else:
             if scheduler.in_maintenance_window():
                 logger.debug("Im Wartungsfenster, aber kein Kino fällig.")

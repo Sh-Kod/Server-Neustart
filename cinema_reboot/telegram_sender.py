@@ -8,6 +8,7 @@ Alle Nachrichten enthalten:
   - Nächster Retry-Zeitpunkt (wenn vorhanden)
 """
 import logging
+import threading
 import requests
 from datetime import datetime
 from typing import Optional
@@ -34,6 +35,7 @@ class TelegramSender:
         self._config = config
         self._tz = pytz.timezone(config.timezone)
         self._enabled = config.telegram_enabled
+        self._lock = threading.Lock()
         if self._enabled:
             self._token = config.telegram_token
             self._chat_id = config.telegram_chat_id
@@ -54,7 +56,8 @@ class TelegramSender:
             "parse_mode": "HTML",
         }
         try:
-            resp = requests.post(url, json=payload, timeout=10)
+            with self._lock:
+                resp = requests.post(url, json=payload, timeout=10)
             if resp.status_code == 200:
                 logger.debug("Telegram-Nachricht erfolgreich gesendet.")
                 return True

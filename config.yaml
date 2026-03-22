@@ -139,3 +139,8 @@ settings:
 
   # Hauptschleifen-Intervall in Sekunden (wie oft der Scheduler prüft)
   main_loop_interval_seconds: 60
+
+  # Alle fälligen Kinos gleichzeitig neu starten (statt nacheinander)
+  # true  → alle Kinos parallel (~7-8 Min. für 13 Kinos)
+  # false → nacheinander (~65 Min. für 13 Kinos)
+  parallel_reboot: true

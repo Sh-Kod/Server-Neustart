@@ -10,7 +10,8 @@ Jeder Kino-Eintrag enthält:
 """
 import json
 import os
-from datetime import datetime, timezone
+import threading
+from datetime import datetime
 from typing import Optional
 
 
@@ -27,11 +28,13 @@ class Status:
 
 
 class StateManager:
-    """Liest und schreibt den persistenten Zustand aller Kinos."""
+    """Liest und schreibt den persistenten Zustand aller Kinos.
+    Thread-safe: alle Methoden sind mit einem Lock geschützt."""
 
     def __init__(self, state_file: str):
         self._path = os.path.abspath(state_file)
         self._state: dict = {}
+        self._lock = threading.Lock()
         self._load()
 
     def _load(self) -> None:
@@ -42,11 +45,13 @@ class StateManager:
             self._state = {}
 
     def _save(self) -> None:
+        """Schreibt den State in die Datei. Muss mit gehaltenem Lock aufgerufen werden."""
         os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
         with open(self._path, "w", encoding="utf-8") as f:
             json.dump(self._state, f, indent=2, ensure_ascii=False)
 
     def _get_cinema(self, cinema_id: str) -> dict:
+        """Gibt den Eintrag für ein Kino zurück. Muss mit gehaltenem Lock aufgerufen werden."""
         if cinema_id not in self._state:
             self._state[cinema_id] = {
                 "last_success_date": None,
@@ -57,83 +62,95 @@ class StateManager:
         return self._state[cinema_id]
 
     def get_status(self, cinema_id: str) -> str:
-        return self._get_cinema(cinema_id)["status"]
+        with self._lock:
+            return self._get_cinema(cinema_id)["status"]
 
     def get_last_success_date(self, cinema_id: str) -> Optional[str]:
-        return self._get_cinema(cinema_id)["last_success_date"]
+        with self._lock:
+            return self._get_cinema(cinema_id)["last_success_date"]
 
     def get_next_retry_time(self, cinema_id: str) -> Optional[datetime]:
-        raw = self._get_cinema(cinema_id).get("next_retry_time")
-        if raw is None:
-            return None
-        return datetime.fromisoformat(raw)
+        with self._lock:
+            raw = self._get_cinema(cinema_id).get("next_retry_time")
+            if raw is None:
+                return None
+            return datetime.fromisoformat(raw)
 
     def was_successful_today(self, cinema_id: str, today: str) -> bool:
         """Gibt True zurück, wenn das Kino heute bereits erfolgreich rebootet wurde."""
-        entry = self._get_cinema(cinema_id)
-        return (
-            entry["status"] == Status.SUCCESS
-            and entry["last_success_date"] == today
-        )
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            return (
+                entry["status"] == Status.SUCCESS
+                and entry["last_success_date"] == today
+            )
 
     def set_success(self, cinema_id: str, today: str) -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.SUCCESS
-        entry["last_success_date"] = today
-        entry["next_retry_time"] = None
-        entry["last_error"] = None
-        self._save()
-
-    def set_blocked_by_playback(self, cinema_id: str, next_retry: datetime) -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.BLOCKED_BY_PLAYBACK
-        entry["next_retry_time"] = next_retry.isoformat()
-        entry["last_error"] = "Playback läuft – Reboot abgebrochen"
-        self._save()
-
-    def set_blocked_by_transfer(self, cinema_id: str, next_retry: datetime) -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.BLOCKED_BY_TRANSFER
-        entry["next_retry_time"] = next_retry.isoformat()
-        entry["last_error"] = "Transfer/Ingest/Export aktiv – Reboot abgebrochen"
-        self._save()
-
-    def set_offline(self, cinema_id: str, next_retry: datetime) -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.OFFLINE
-        entry["next_retry_time"] = next_retry.isoformat()
-        entry["last_error"] = "Server nicht erreichbar"
-        self._save()
-
-    def set_ui_unclear(self, cinema_id: str, next_retry: datetime, detail: str = "") -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.UI_UNCLEAR
-        entry["next_retry_time"] = next_retry.isoformat()
-        entry["last_error"] = f"UI-Zustand unklar – konservativ abgebrochen. {detail}"
-        self._save()
-
-    def set_error(self, cinema_id: str, next_retry: datetime, error: str) -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.ERROR
-        entry["next_retry_time"] = next_retry.isoformat()
-        entry["last_error"] = error
-        self._save()
-
-    def set_in_progress(self, cinema_id: str) -> None:
-        entry = self._get_cinema(cinema_id)
-        entry["status"] = Status.IN_PROGRESS
-        self._save()
-
-    def reset_for_new_day(self, cinema_id: str, today: str) -> None:
-        """Setzt den Status zurück, wenn ein neuer Tag begonnen hat."""
-        entry = self._get_cinema(cinema_id)
-        last_success = entry.get("last_success_date")
-        if last_success != today and entry["status"] == Status.SUCCESS:
-            # Neuer Tag → zurücksetzen
-            entry["status"] = Status.IDLE
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.SUCCESS
+            entry["last_success_date"] = today
             entry["next_retry_time"] = None
             entry["last_error"] = None
             self._save()
 
+    def set_blocked_by_playback(self, cinema_id: str, next_retry: datetime) -> None:
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.BLOCKED_BY_PLAYBACK
+            entry["next_retry_time"] = next_retry.isoformat()
+            entry["last_error"] = "Playback läuft – Reboot abgebrochen"
+            self._save()
+
+    def set_blocked_by_transfer(self, cinema_id: str, next_retry: datetime) -> None:
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.BLOCKED_BY_TRANSFER
+            entry["next_retry_time"] = next_retry.isoformat()
+            entry["last_error"] = "Transfer/Ingest/Export aktiv – Reboot abgebrochen"
+            self._save()
+
+    def set_offline(self, cinema_id: str, next_retry: datetime) -> None:
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.OFFLINE
+            entry["next_retry_time"] = next_retry.isoformat()
+            entry["last_error"] = "Server nicht erreichbar"
+            self._save()
+
+    def set_ui_unclear(self, cinema_id: str, next_retry: datetime, detail: str = "") -> None:
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.UI_UNCLEAR
+            entry["next_retry_time"] = next_retry.isoformat()
+            entry["last_error"] = f"UI-Zustand unklar – konservativ abgebrochen. {detail}"
+            self._save()
+
+    def set_error(self, cinema_id: str, next_retry: datetime, error: str) -> None:
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.ERROR
+            entry["next_retry_time"] = next_retry.isoformat()
+            entry["last_error"] = error
+            self._save()
+
+    def set_in_progress(self, cinema_id: str) -> None:
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["status"] = Status.IN_PROGRESS
+            self._save()
+
+    def reset_for_new_day(self, cinema_id: str, today: str) -> None:
+        """Setzt den Status zurück, wenn ein neuer Tag begonnen hat."""
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            last_success = entry.get("last_success_date")
+            if last_success != today and entry["status"] == Status.SUCCESS:
+                entry["status"] = Status.IDLE
+                entry["next_retry_time"] = None
+                entry["last_error"] = None
+                self._save()
+
     def get_all(self) -> dict:
-        return dict(self._state)
+        with self._lock:
+            return dict(self._state)

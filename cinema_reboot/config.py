@@ -133,6 +133,10 @@ class Config:
         return int(self._raw["settings"].get("main_loop_interval_seconds", 60))
 
     @property
+    def parallel_reboot(self) -> bool:
+        return self._raw["settings"].get("parallel_reboot", False)
+
+    @property
     def local_alarm_enabled(self) -> bool:
         return self._raw["settings"].get("local_alarm_enabled", True)
 

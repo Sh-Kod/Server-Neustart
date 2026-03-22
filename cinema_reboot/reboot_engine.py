@@ -9,6 +9,7 @@ Verantwortlichkeiten:
   5. Telegram + lokale Benachrichtigungen senden
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -110,6 +111,23 @@ class RebootEngine:
         # ── Ergebnis auswerten ───────────────────────────────────────────
         self._process_outcome(cinema, outcome, today)
         return outcome
+
+    def run_parallel(self, cinemas: list) -> None:
+        """
+        Führt Reboots für mehrere Kinos gleichzeitig aus.
+        Jedes Kino läuft in einem eigenen Thread mit eigenem Browser.
+        Pre-Checks (Playback/Transfer) werden pro Kino unabhängig durchgeführt.
+        """
+        logger.info(f"Starte parallelen Reboot für {len(cinemas)} Kinos gleichzeitig...")
+        with ThreadPoolExecutor(max_workers=len(cinemas)) as executor:
+            futures = {executor.submit(self.run, cinema): cinema for cinema in cinemas}
+            for future in as_completed(futures):
+                cinema = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Thread-Fehler für {cinema['name']}: {e}", exc_info=True)
+        logger.info("Paralleler Reboot-Durchlauf abgeschlossen.")
 
     def _run_with_browser(self, handler) -> RebootOutcome:
         """Startet Playwright, öffnet Browser, ruft Handler auf."""
