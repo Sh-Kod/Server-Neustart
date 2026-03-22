@@ -111,7 +111,7 @@ telegram:
 settings:
   # DRY_RUN = true → Programm navigiert und erkennt Zustände, klickt aber NICHT auf Reboot
   # Erst auf false setzen, wenn du das Programm vollständig getestet hast!
-  dry_run: true
+  dry_run: false
 
   # Wartezeit nach Reboot-Auslösung, bis Server wieder erreichbar sein muss (Minuten)
   reboot_wait_minutes: 4
