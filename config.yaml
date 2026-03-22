@@ -10,43 +10,43 @@ cinemas:
     name: "Kino 01"
     ip: "172.20.21.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino02
     name: "Kino 02"
     ip: "172.20.22.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino03
     name: "Kino 03"
     ip: "172.20.23.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino04
     name: "Kino 04"
     ip: "172.20.24.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino05
     name: "Kino 05"
     ip: "172.20.25.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino06
     name: "Kino 06"
     ip: "172.20.26.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino07
     name: "Kino 07"
     ip: "172.20.27.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino08
     name: "Kino 08"
@@ -58,31 +58,31 @@ cinemas:
     name: "Kino 09"
     ip: "172.20.29.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino10
     name: "Kino 10"
     ip: "172.20.30.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino11
     name: "Kino 11"
     ip: "172.20.31.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino12
     name: "Kino 12"
     ip: "172.20.32.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
   - id: kino13
     name: "Kino 13"
     ip: "172.20.33.11"
     type: "doremi"
-    enabled: false
+    enabled: true
 
 # Login-Daten (gelten für alle Kinos)
 credentials:

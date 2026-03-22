@@ -362,9 +362,34 @@ class TelegramController:
             self._send(chat_id, "Bitte *1*, *2* oder *3* eingeben.")
 
     def _dialog_server_select_edit(self, chat_id: str, text: str) -> None:
+        cinemas = self._config.cinemas
+
+        # Sofort-Reboot: Mehrfachauswahl unterstützen
+        if self._dm.get("for_immediate"):
+            t = text.strip().lower()
+            if t in ("alle", "all", "a"):
+                selected = list(cinemas)
+            else:
+                try:
+                    indices = [int(x.strip()) - 1 for x in t.split(",")]
+                    if any(i < 0 or i >= len(cinemas) for i in indices):
+                        raise ValueError
+                    selected = [cinemas[i] for i in indices]
+                except ValueError:
+                    self._send(chat_id, "❌ Ungültige Eingabe. Nummer(n) eingeben oder `alle`.")
+                    return
+            self._dm.reset()
+            for cinema in selected:
+                self._app_state.request_run(cinema["id"])
+            names = ", ".join(c["name"] for c in selected)
+            self._send(chat_id,
+                f"⚡ Sofort-Reboot für *{names}* angefordert.\n"
+                f"_Wird im nächsten Prüfzyklus ausgeführt._")
+            return
+
+        # Normales Bearbeiten (einzelne Nummer)
         try:
             idx = int(text.strip()) - 1
-            cinemas = self._config.cinemas
             if idx < 0 or idx >= len(cinemas):
                 raise ValueError
         except ValueError:
@@ -372,17 +397,6 @@ class TelegramController:
             return
 
         cinema = cinemas[idx]
-
-        # Sofort-Reboot?
-        if self._dm.get("for_immediate"):
-            self._dm.reset()
-            self._app_state.request_run(cinema["id"])
-            self._send(chat_id,
-                f"⚡ Sofort-Reboot für *{cinema['name']}* angefordert.\n"
-                f"_Wird im nächsten Prüfzyklus ausgeführt._")
-            return
-
-        # Normales Bearbeiten
         self._dm.set("cinema_id", cinema["id"])
         self._dm.set("cinema_name", cinema["name"])
         self._dm.next(DS.SERVER_EDIT_FIELD)
@@ -597,10 +611,10 @@ class TelegramController:
 
     def _cmd_immediate(self, chat_id: str) -> None:
         cinemas = self._config.cinemas
-        lines = ["⚡ *Sofort-Reboot* – Kino wählen:\n"]
+        lines = ["⚡ *Sofort-Reboot* – Kino(s) wählen:\n"]
         for i, c in enumerate(cinemas, 1):
             lines.append(f"{i}. {c['name']} ({c['id']}) – {c['ip']}")
-        lines.append("\n_(0 = Abbrechen)_")
+        lines.append("\n_Einzeln: `3` | Mehrere: `1,3,5` | Alle: `alle` | Abbrechen: `0`_")
         self._dm.start(DS.SERVER_SELECT_EDIT, for_immediate=True)
         self._send(chat_id, "\n".join(lines))
 
