@@ -66,10 +66,11 @@ class RebootEngine:
         else:
             return DoremiHandler(**common_args)
 
-    def run(self, cinema: dict) -> RebootOutcome:
+    def run(self, cinema: dict, silent: bool = False) -> RebootOutcome:
         """
         Führt den kompletten Reboot-Flow für ein Kino durch.
         Aktualisiert State und sendet Benachrichtigungen.
+        silent=True: unterdrückt Start- und Erfolgs-Nachrichten (für Parallel-Modus).
         """
         cinema_id = cinema["id"]
         cinema_name = cinema["name"]
@@ -102,14 +103,15 @@ class RebootEngine:
             )
 
         logger.info(f"[{cinema_name}] Server erreichbar ✓")
-        self._telegram.send_start_attempt(cinema_name, dry_run=self._config.dry_run)
+        if not silent:
+            self._telegram.send_start_attempt(cinema_name, dry_run=self._config.dry_run)
 
         # ── Schritt 1-5: Browser + Handler ──────────────────────────────
         self._state.set_in_progress(cinema_id)
         outcome = self._run_with_browser(handler)
 
         # ── Ergebnis auswerten ───────────────────────────────────────────
-        self._process_outcome(cinema, outcome, today)
+        self._process_outcome(cinema, outcome, today, silent=silent)
         return outcome
 
     def run_parallel(self, cinemas: list) -> None:
@@ -117,17 +119,44 @@ class RebootEngine:
         Führt Reboots für mehrere Kinos gleichzeitig aus.
         Jedes Kino läuft in einem eigenen Thread mit eigenem Browser.
         Pre-Checks (Playback/Transfer) werden pro Kino unabhängig durchgeführt.
+        Am Ende wird eine einzige Zusammenfassung per Telegram gesendet.
         """
         logger.info(f"Starte parallelen Reboot für {len(cinemas)} Kinos gleichzeitig...")
+
+        results: dict[str, RebootOutcome] = {}
+
         with ThreadPoolExecutor(max_workers=len(cinemas)) as executor:
-            futures = {executor.submit(self.run, cinema): cinema for cinema in cinemas}
-            for future in as_completed(futures):
-                cinema = futures[future]
+            future_to_cinema = {
+                executor.submit(self.run, cinema, silent=True): cinema
+                for cinema in cinemas
+            }
+            for future in as_completed(future_to_cinema):
+                cinema = future_to_cinema[future]
                 try:
-                    future.result()
+                    results[cinema["name"]] = future.result()
                 except Exception as e:
                     logger.error(f"Thread-Fehler für {cinema['name']}: {e}", exc_info=True)
+                    results[cinema["name"]] = RebootOutcome(
+                        result=RebootResult.ERROR, message=str(e)
+                    )
+
         logger.info("Paralleler Reboot-Durchlauf abgeschlossen.")
+
+        # Ergebnisse gruppieren und Zusammenfassung senden
+        groups: dict[str, list[str]] = {
+            "success": [], "blocked_by_playback": [], "blocked_by_transfer": [],
+            "ui_unclear": [], "offline": [], "timeout": [], "error": [],
+        }
+        for name, outcome in results.items():
+            v = outcome.result.value
+            if v in ("dry_run_ok",):
+                groups["success"].append(name)
+            elif v in groups:
+                groups[v].append(name)
+            else:
+                groups["error"].append(name)
+
+        self._telegram.send_parallel_summary(groups, total=len(cinemas))
 
     def _run_with_browser(self, handler) -> RebootOutcome:
         """Startet Playwright, öffnet Browser, ruft Handler auf."""
@@ -163,8 +192,10 @@ class RebootEngine:
         cinema: dict,
         outcome: RebootOutcome,
         today: str,
+        silent: bool = False,
     ) -> None:
-        """Wertet das Ergebnis aus, aktualisiert State und sendet Benachrichtigungen."""
+        """Wertet das Ergebnis aus, aktualisiert State und sendet Benachrichtigungen.
+        silent=True: unterdrückt die Erfolgs-Nachricht (für Parallel-Modus)."""
         cinema_id = cinema["id"]
         cinema_name = cinema["name"]
         next_retry: Optional[datetime] = None
@@ -185,7 +216,8 @@ class RebootEngine:
         # State aktualisieren
         if result == RebootResult.SUCCESS:
             self._state.set_success(cinema_id, today)
-            self._telegram.send_reboot_success(cinema_name, outcome.duration_seconds)
+            if not silent:
+                self._telegram.send_reboot_success(cinema_name, outcome.duration_seconds)
 
         elif result == RebootResult.DRY_RUN_OK:
             # Im Dry-Run keinen echten Erfolg markieren

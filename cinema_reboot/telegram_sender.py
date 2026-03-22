@@ -190,6 +190,46 @@ class TelegramSender:
         )
         self._send(text)
 
+    def send_parallel_summary(self, groups: dict, total: int) -> None:
+        """Sendet eine Zusammenfassung nach einem parallelen Reboot."""
+        success = groups.get("success", [])
+        blocked_play = groups.get("blocked_by_playback", [])
+        blocked_transfer = groups.get("blocked_by_transfer", [])
+        ui_unclear = groups.get("ui_unclear", [])
+        offline = groups.get("offline", [])
+        timeout = groups.get("timeout", [])
+        errors = groups.get("error", [])
+
+        lines = [
+            f"{EMOJI_INFO} <b>Paralleler Reboot abgeschlossen</b>",
+            f"Zeit: {self._now_str()}",
+            f"Gesamt: {total} Kinos",
+            "",
+        ]
+        if success:
+            names = ", ".join(success)
+            lines.append(f"{EMOJI_OK} Erfolgreich ({len(success)}): {names}")
+        if blocked_play:
+            names = ", ".join(blocked_play)
+            lines.append(f"{EMOJI_FIRE} Playback aktiv ({len(blocked_play)}): {names}")
+        if blocked_transfer:
+            names = ", ".join(blocked_transfer)
+            lines.append(f"{EMOJI_WARN} Transfer aktiv ({len(blocked_transfer)}): {names}")
+        if ui_unclear:
+            names = ", ".join(ui_unclear)
+            lines.append(f"{EMOJI_WARN} UI unklar ({len(ui_unclear)}): {names}")
+        if offline:
+            names = ", ".join(offline)
+            lines.append(f"{EMOJI_ERROR} Offline ({len(offline)}): {names}")
+        if timeout:
+            names = ", ".join(timeout)
+            lines.append(f"{EMOJI_ERROR} Timeout ({len(timeout)}): {names}")
+        if errors:
+            names = ", ".join(errors)
+            lines.append(f"{EMOJI_ERROR} Fehler ({len(errors)}): {names}")
+
+        self._send("\n".join(lines))
+
     def send_status(self, status_text: str) -> None:
         """Sendet eine freie Status-Nachricht."""
         self._send(f"{EMOJI_INFO} {status_text}")
