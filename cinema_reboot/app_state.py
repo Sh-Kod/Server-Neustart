@@ -21,6 +21,7 @@ class AppState:
         self._start_time: datetime = datetime.now(self._tz)
         self._last_scheduler_restart: Optional[datetime] = None
         self._shutdown_requested: bool = False
+        self._update_available: bool = False
         self._pending_runs: Set[str] = set()  # cinema_ids für sofortigen Lauf
         self.version: str = VERSION
 
@@ -48,6 +49,19 @@ class AppState:
 
     def request_shutdown(self) -> None:
         with self._lock:
+            self._shutdown_requested = True
+
+    # ── Update ───────────────────────────────────────────────────────────────
+
+    @property
+    def update_available(self) -> bool:
+        with self._lock:
+            return self._update_available
+
+    def signal_update(self) -> None:
+        """Wird vom Hintergrund-Updater aufgerufen wenn ein Update gezogen wurde."""
+        with self._lock:
+            self._update_available = True
             self._shutdown_requested = True
 
     # ── Zeiten ───────────────────────────────────────────────────────────────

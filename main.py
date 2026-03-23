@@ -24,7 +24,7 @@ from cinema_reboot.scheduler import Scheduler
 from cinema_reboot.state_manager import StateManager
 from cinema_reboot.telegram_controller import TelegramController
 from cinema_reboot.telegram_sender import TelegramSender
-from cinema_reboot.updater import check_and_update
+from cinema_reboot.updater import check_and_update, start_background_updater
 
 logger = logging.getLogger(__name__)
 
@@ -300,12 +300,20 @@ def main():
     else:
         logger.info("Telegram-Bot deaktiviert (telegram.enabled = false).")
 
+    # Hintergrund-Updater starten (prüft alle 30 Sek. auf neue Commits)
+    start_background_updater(app_state)
+
     # Hauptschleife
     try:
         main_loop(config, app_state, state, scheduler, engine)
     finally:
         if controller:
             controller.stop()
+
+    # Neustart nach Hintergrund-Update
+    if app_state.update_available:
+        logger.info("Starte Programm nach Update neu...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 if __name__ == "__main__":
