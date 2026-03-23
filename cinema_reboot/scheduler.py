@@ -174,11 +174,21 @@ class Scheduler:
         return from_time + timedelta(minutes=self._config.retry_interval_minutes)
 
     def is_within_window(self, dt: datetime) -> bool:
-        """Prüft, ob ein Zeitpunkt noch im aktuellen Wartungsfenster liegt."""
-        window_end = self.get_window_end()
+        """Prüft, ob ein Zeitpunkt im aktuellen Wartungsfenster liegt (Start UND Ende)."""
+        now = self._now()
+        window_start = self._parse_time(self._config.mw_start, now)
+        window_end = self._parse_time(self._config.mw_end, now)
         if dt.tzinfo is None:
             dt = self._tz.localize(dt)
-        return dt < window_end
+        if not (window_start <= dt < window_end):
+            return False
+        # Wochentag-Filter
+        allowed_days = self._config.allowed_days
+        if allowed_days:
+            day_abbr = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][dt.weekday()]
+            if day_abbr not in allowed_days:
+                return False
+        return True
 
     def summary(self) -> str:
         """Gibt eine lesbare Übersicht des heutigen Plans aus."""
