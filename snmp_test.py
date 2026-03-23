@@ -114,18 +114,15 @@ def snmp_get(host, community, oid, port=161, timeout=5):
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 IP = "172.20.23.21"
-
-oids = [
-    ("Runtime (Stunden)",  "1.3.6.1.4.1.12612.220.11.2.2.4.8.1.2.0"),
-    ("Max 100% (Stunden)", "1.3.6.1.4.1.12612.220.11.2.2.4.8.1.2.1"),
-]
+BASE = "1.3.6.1.4.1.12612.220.11.2.2.4.8.1.2"
 
 print(f"\nSNMP-Test Projektor {IP}")
 print("=" * 40)
-for label, oid in oids:
+for i in range(6):
+    oid = f"{BASE}.{i}"
     try:
         value = snmp_get(IP, "public", oid)
-        print(f"{label}: {value}")
+        print(f"  Index {i}: {value!r}")
     except Exception as e:
-        print(f"{label}: FEHLER – {e}")
+        print(f"  Index {i}: FEHLER – {e}")
 print("=" * 40)
