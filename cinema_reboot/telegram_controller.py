@@ -217,6 +217,9 @@ class TelegramController:
                 f"Neu: `{status}`\n\n"
                 f"*ja* bestätigen, *0* abbrechen.")
 
+        elif cmd in ("12", "ping", "version", "info"):
+            self._send(chat_id, self._build_ping())
+
         else:
             self._send(chat_id, f"Unbekannter Befehl: `{text}`\n\n" + self._main_menu())
 
@@ -694,8 +697,36 @@ class TelegramController:
             f"8 – Sofort-Reboot auslösen\n"
             f"9 – Scheduler neu starten\n"
             f"10 – Programm beenden\n"
-            f"11 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n\n"
+            f"11 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n"
+            f"12 – Version & Laufzeit prüfen\n\n"
             f"_0 oder /abbrechen = Dialog abbrechen_"
+        )
+
+    def _build_ping(self) -> str:
+        """Zeigt Version, Uptime und Branch – zum schnellen Testen ob Programm läuft."""
+        import subprocess as _sp
+        from pathlib import Path as _P
+        now = datetime.now(self._tz)
+        uptime = now - self._app_state.start_time
+        hours, rem = divmod(int(uptime.total_seconds()), 3600)
+        minutes = rem // 60
+
+        # Branch ermitteln
+        try:
+            branch = _sp.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True,
+                cwd=str(_P(__file__).resolve().parent.parent),
+            ).stdout.strip() or "?"
+        except Exception:
+            branch = "?"
+
+        return (
+            f"🟢 *Programm läuft!*\n\n"
+            f"📦 Version: `{self._app_state.version}`\n"
+            f"🌿 Branch: `{branch}`\n"
+            f"⏱️ Laufzeit: `{hours}h {minutes}min`\n"
+            f"🕐 Gestartet: `{self._app_state.start_time.strftime('%d.%m.%Y %H:%M:%S')}`"
         )
 
     def _build_status(self) -> str:
