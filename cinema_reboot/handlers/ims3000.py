@@ -286,6 +286,10 @@ class IMS3000Handler(BaseHandler):
         page.locator(self.SEL_DIALOG_REBOOT).click()
         self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
 
+        # Debug-Screenshot direkt nach Reboot-Klick (zeigt ob Dialog geschlossen)
+        time.sleep(1)
+        self.take_screenshot_on_error(page, "ims3000_after_reboot_click")
+
         # ── KRITISCHE PHASE: Playback- oder Ingest-Popup abfangen ─────────────
         # IMS3000 braucht 2-4 Sekunden bis das Popup erscheint → mehrmals prüfen
         popup_outcome = None
@@ -303,7 +307,11 @@ class IMS3000Handler(BaseHandler):
 
         # Kein Popup nach 4 Sekunden → Countdown abwarten (nichts klicken)
         self.logger.info(f"[{self.cinema_name}] Kein Popup erkannt → IMS3000 Reboot läuft.")
-        self._wait_for_countdown(page)
+        countdown_found = self._wait_for_countdown(page)
+        if not countdown_found:
+            self.logger.warning(
+                f"[{self.cinema_name}] ⚠️  Countdown NICHT erkannt – Reboot evtl. nicht gestartet!")
+            self.take_screenshot_on_error(page, "ims3000_countdown_missing")
         return None
 
     def _handle_popup(self, page: Page) -> Optional[RebootOutcome]:
@@ -355,15 +363,17 @@ class IMS3000Handler(BaseHandler):
 
         return RebootOutcome(result=result, message=message)
 
-    def _wait_for_countdown(self, page: Page) -> None:
-        """Wartet auf IMS3000 Countdown-Text. Nichts klicken!"""
+    def _wait_for_countdown(self, page: Page) -> bool:
+        """Wartet auf IMS3000 Countdown-Text. Nichts klicken! Gibt True zurück wenn erkannt."""
         try:
             page.locator(self.SEL_COUNTDOWN).wait_for(timeout=10_000)
             self.logger.info(
                 f"[{self.cinema_name}] IMS3000 Countdown erkannt "
                 "('System will reboot in...') – warte, nichts klicken.")
+            return True
         except PlaywrightTimeout:
             self.logger.debug("IMS3000 Countdown nicht erkannt – Reboot läuft vermutlich.")
+            return False
 
     # ── Post-Login ────────────────────────────────────────────────────────────
 
