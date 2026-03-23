@@ -56,6 +56,7 @@ class StateManager:
         if cinema_id not in self._state:
             self._state[cinema_id] = {
                 "last_success_date": None,
+                "last_reset_date": None,
                 "next_retry_time": None,
                 "last_error": None,
                 "status": Status.IDLE,
@@ -142,15 +143,35 @@ class StateManager:
             self._save()
 
     def reset_for_new_day(self, cinema_id: str, today: str) -> None:
-        """Setzt den Status zurück, wenn ein neuer Tag begonnen hat."""
+        """Setzt den Status zurück, wenn ein neuer Tag begonnen hat.
+
+        Wird in jeder Loop-Iteration aufgerufen. last_reset_date stellt sicher,
+        dass der Reset pro Tag nur einmal passiert – damit laufende Retries
+        nicht bei jedem Zyklus gelöscht werden.
+        """
         with self._lock:
             entry = self._get_cinema(cinema_id)
-            last_success = entry.get("last_success_date")
-            if last_success != today and entry["status"] == Status.SUCCESS:
-                entry["status"] = Status.IDLE
-                entry["next_retry_time"] = None
-                entry["last_error"] = None
-                self._save()
+
+            # Heute bereits zurückgesetzt?
+            if entry.get("last_reset_date") == today:
+                return
+
+            status = entry["status"]
+
+            # Laufenden Prozess nicht unterbrechen
+            if status == Status.IN_PROGRESS:
+                return
+
+            # Heute bereits erfolgreich – nichts tun
+            if status == Status.SUCCESS and entry.get("last_success_date") == today:
+                return
+
+            # Neuer Tag → alle alten Statuse zurücksetzen (SUCCESS, error, blocked, offline …)
+            entry["status"] = Status.IDLE
+            entry["next_retry_time"] = None
+            entry["last_error"] = None
+            entry["last_reset_date"] = today
+            self._save()
 
     def get_all(self) -> dict:
         with self._lock:
