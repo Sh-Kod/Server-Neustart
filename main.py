@@ -17,6 +17,7 @@ import sys
 import time
 
 from cinema_reboot.app_state import AppState
+from cinema_reboot.barco_projector import read_lamp_on
 from cinema_reboot.config import Config
 from cinema_reboot.logger_setup import setup_logging
 from cinema_reboot.reboot_engine import RebootEngine
@@ -118,6 +119,48 @@ def cmd_run_single(config: Config, cinema_id: str, engine: RebootEngine) -> None
     print(f"Starte Reboot-Flow für {cinema['name']} ({cinema['ip']})...")
     outcome = engine.run(cinema)
     print(f"Ergebnis: {outcome.result.value} – {outcome.message}")
+
+
+def cmd_test_projector(config: Config, cinema_id: str) -> None:
+    """Liest den Projektor-Lampenstatus – kein Reboot, nur Test."""
+    cinemas = {c["id"]: c for c in config.cinemas}
+    if cinema_id not in cinemas:
+        print(f"Kino '{cinema_id}' nicht gefunden.")
+        print(f"Verfügbare IDs: {', '.join(cinemas.keys())}")
+        sys.exit(1)
+
+    cinema = cinemas[cinema_id]
+    projector_ip = cinema.get("projector_ip")
+
+    print(f"\n{'═' * 50}")
+    print(f"  Projektor-Test: {cinema['name']}")
+    print(f"{'═' * 50}")
+
+    if not projector_ip:
+        print(f"  ❌ Kein 'projector_ip' in config.yaml für {cinema['name']} eingetragen.")
+        print(f"     Bitte ergänzen und nochmal versuchen.")
+        print(f"{'═' * 50}\n")
+        sys.exit(1)
+
+    projector_port = int(cinema.get("projector_port", 43728))
+    print(f"  Projektor IP:   {projector_ip}")
+    print(f"  Projektor Port: {projector_port}")
+    print(f"  Verbinde...")
+
+    lamp_on = read_lamp_on(projector_ip, projector_port)
+
+    print(f"{'─' * 50}")
+    if lamp_on is True:
+        print(f"  🔆 LAMPE AN  → Vorstellung läuft!")
+        print(f"     Reboot würde BLOCKIERT werden.")
+    elif lamp_on is False:
+        print(f"  ⬛ LAMPE AUS → Kein Film läuft.")
+        print(f"     Reboot würde ERLAUBT sein.")
+    else:
+        print(f"  ⚠️  KEINE ANTWORT vom Projektor.")
+        print(f"     Projektor nicht erreichbar oder IP falsch.")
+        print(f"     Reboot würde trotzdem fortgesetzt (mit Warnung).")
+    print(f"{'═' * 50}\n")
 
 
 def main_loop(
@@ -283,6 +326,11 @@ def main():
         action="store_true",
         help="Zeigt DEBUG-Logs in der Konsole",
     )
+    parser.add_argument(
+        "--test-projector",
+        metavar="KINO_ID",
+        help="Liest nur den Projektor-Lampenstatus für ein Kino (kein Reboot!)",
+    )
     args = parser.parse_args()
 
     config_path = os.path.abspath(args.config)
@@ -319,6 +367,10 @@ def main():
 
     if args.run:
         cmd_run_single(config, args.run, engine)
+        return
+
+    if args.test_projector:
+        cmd_test_projector(config, args.test_projector)
         return
 
     # Auto-Update prüfen – bei Änderung Prozess neu starten
