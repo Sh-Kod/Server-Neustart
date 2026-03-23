@@ -2,13 +2,29 @@
 Gemeinsamer Anwendungszustand – thread-sicher geteilt zwischen
 Hauptschleife und Telegram-Controller.
 """
+import subprocess
 import threading
 from datetime import datetime
 from typing import Optional, Set
 
 import pytz
 
-VERSION = "1.1.0"
+
+def _read_version() -> str:
+    """Liest den aktuellen Git-Commit-Hash als Versions-Suffix."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            return f"1.2.0 ({result.stdout.strip()})"
+    except Exception:
+        pass
+    return "1.2.0"
+
+
+VERSION = _read_version()
 
 
 class AppState:

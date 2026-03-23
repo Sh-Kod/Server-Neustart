@@ -205,6 +205,18 @@ class TelegramController:
             self._dm.start(DS.SHUTDOWN_CONFIRM)
             self._send(chat_id, "⚠️ *Programm wirklich beenden?*\n\n*ja* bestätigen, *0* abbrechen.")
 
+        elif cmd in ("11", "headless"):
+            current = self._config._raw.get("settings", {}).get("headless", False)
+            new_val = not current
+            status = "unsichtbar (headless)" if new_val else "sichtbar (mit Fenster)"
+            self._dm.start(DS.HEADLESS_CONFIRM)
+            self._dm.set("new_headless", new_val)
+            self._send(chat_id,
+                f"🖥️ *Browser-Modus ändern*\n\n"
+                f"Aktuell: `{'unsichtbar' if current else 'sichtbar'}`\n"
+                f"Neu: `{status}`\n\n"
+                f"*ja* bestätigen, *0* abbrechen.")
+
         else:
             self._send(chat_id, f"Unbekannter Befehl: `{text}`\n\n" + self._main_menu())
 
@@ -234,6 +246,7 @@ class TelegramController:
             DS.CREDS_PASSWORD:         self._dialog_creds_password,
             DS.CREDS_CONFIRM:          self._dialog_creds_confirm,
             DS.SHUTDOWN_CONFIRM:       self._dialog_shutdown_confirm,
+            DS.HEADLESS_CONFIRM:       self._dialog_headless_confirm,
         }
         handler = dispatch.get(s)
         if handler:
@@ -632,6 +645,24 @@ class TelegramController:
         self._app_state.request_shutdown()
 
     # ══════════════════════════════════════════════════════════════════════════
+    # HEADLESS (Befehl 11)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _dialog_headless_confirm(self, chat_id: str, text: str) -> None:
+        if text.lower() not in ("ja", "yes", "j", "y"):
+            self._dm.reset()
+            self._send(chat_id, "❌ Abgebrochen.")
+            return
+        new_val = self._dm.get("new_headless", False)
+        self._dm.reset()
+        update_config_value(self._config_path, ["settings", "headless"], new_val)
+        self._config._raw.setdefault("settings", {})["headless"] = new_val
+        status = "unsichtbar (headless)" if new_val else "sichtbar (mit Fenster)"
+        self._send(chat_id,
+            f"✅ Browser-Modus auf *{status}* gesetzt.\n"
+            f"_Gilt ab dem nächsten Reboot-Vorgang._")
+
+    # ══════════════════════════════════════════════════════════════════════════
     # HILFSFUNKTIONEN
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -662,7 +693,8 @@ class TelegramController:
             f"7 – Zugangsdaten ändern\n"
             f"8 – Sofort-Reboot auslösen\n"
             f"9 – Scheduler neu starten\n"
-            f"10 – Programm beenden\n\n"
+            f"10 – Programm beenden\n"
+            f"11 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n\n"
             f"_0 oder /abbrechen = Dialog abbrechen_"
         )
 
