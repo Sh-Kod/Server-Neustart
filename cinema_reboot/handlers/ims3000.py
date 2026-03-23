@@ -256,39 +256,6 @@ class IMS3000Handler(BaseHandler):
                 f"[{self.cinema_name}] [DRY-RUN] IMS3000 Power-Button gefunden – Klick übersprungen.")
             return None
 
-        # ── ROTE GRENZE: nativen confirm()-Dialog abfangen ───────────────────
-        # IMS3000 nutzt window.confirm() – Playwright würde diesen sonst still verwerfen.
-        dialog_result: list[RebootOutcome] = []
-
-        def _on_dialog(dialog) -> None:
-            msg = dialog.message
-            self.logger.info(f"[{self.cinema_name}] IMS3000 nativer Dialog: '{msg}'")
-            if "Playback is currently running" in msg:
-                self.logger.critical(
-                    f"[{self.cinema_name}] ⛔ PLAYBACK-Dialog → Abbrechen! KEIN Reboot.")
-                self.take_screenshot_on_error(page, "ims3000_playback_dialog")
-                dialog_result.append(RebootOutcome(
-                    result=RebootResult.BLOCKED_BY_PLAYBACK,
-                    message="IMS3000 Playback läuft (nativer Dialog) – Reboot abgebrochen.",
-                ))
-                dialog.dismiss()
-            elif "Ingest is currently running" in msg:
-                self.logger.critical(
-                    f"[{self.cinema_name}] ⛔ INGEST-Dialog → Abbrechen! KEIN Reboot.")
-                self.take_screenshot_on_error(page, "ims3000_ingest_dialog")
-                dialog_result.append(RebootOutcome(
-                    result=RebootResult.BLOCKED_BY_TRANSFER,
-                    message="IMS3000 Ingest läuft (nativer Dialog) – Reboot abgebrochen.",
-                ))
-                dialog.dismiss()
-            else:
-                # Einfache Reboot-Bestätigung ohne laufenden Prozess → akzeptieren
-                self.logger.info(
-                    f"[{self.cinema_name}] Reboot-Bestätigung akzeptiert (kein Prozess aktiv).")
-                dialog.accept()
-
-        page.on("dialog", _on_dialog)
-
         # Power-Button klicken – force=True umgeht CSS-Visibility-Prüfung
         page.locator(self.SEL_POWER_BUTTON).first.click(force=True)
         self.logger.info(f"[{self.cinema_name}] IMS3000 Power/Logout-Button geklickt.")
@@ -312,19 +279,57 @@ class IMS3000Handler(BaseHandler):
             return RebootOutcome(result=RebootResult.UI_UNCLEAR,
                                  message="IMS3000 'Reboot'-Button im Dialog nicht gefunden.")
 
-        # ✅ NUR "Reboot" klicken → löst nativen confirm()-Dialog aus
-        page.locator(self.SEL_DIALOG_REBOOT).click()
-        self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
+        # ── ROTE GRENZE: nativen confirm()-Dialog abfangen ───────────────────
+        # IMS3000 nutzt window.confirm() nach Reboot-Klick.
+        # expect_dialog() fängt ihn korrekt ab (page.on() hat Timing-Probleme in sync-Modus).
+        try:
+            with page.expect_dialog(timeout=8_000) as dialog_info:
+                page.locator(self.SEL_DIALOG_REBOOT).click()
+                self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
 
-        # Kurz warten bis dialog-Handler ausgelöst wurde
-        time.sleep(2)
+            dialog = dialog_info.value
+            msg = dialog.message
+            self.logger.info(f"[{self.cinema_name}] IMS3000 nativer Dialog: '{msg}'")
 
-        # Wurde Reboot durch laufenden Prozess blockiert?
-        if dialog_result:
-            return dialog_result[0]
+            if "Playback is currently running" in msg:
+                self.logger.critical(
+                    f"[{self.cinema_name}] ⛔ PLAYBACK-Dialog → Abbrechen! KEIN Reboot.")
+                dialog.dismiss()
+                # Power-Dialog auch schließen
+                time.sleep(0.5)
+                if page.locator(self.SEL_DIALOG_CLOSE).count() > 0:
+                    page.locator(self.SEL_DIALOG_CLOSE).click()
+                    self.logger.info(f"[{self.cinema_name}] Power-Dialog geschlossen.")
+                return RebootOutcome(
+                    result=RebootResult.BLOCKED_BY_PLAYBACK,
+                    message="IMS3000 Playback läuft – Reboot abgebrochen.",
+                )
+            elif "Ingest is currently running" in msg:
+                self.logger.critical(
+                    f"[{self.cinema_name}] ⛔ INGEST-Dialog → Abbrechen! KEIN Reboot.")
+                dialog.dismiss()
+                # Power-Dialog auch schließen
+                time.sleep(0.5)
+                if page.locator(self.SEL_DIALOG_CLOSE).count() > 0:
+                    page.locator(self.SEL_DIALOG_CLOSE).click()
+                    self.logger.info(f"[{self.cinema_name}] Power-Dialog geschlossen.")
+                return RebootOutcome(
+                    result=RebootResult.BLOCKED_BY_TRANSFER,
+                    message="IMS3000 Ingest läuft – Reboot abgebrochen.",
+                )
+            else:
+                # Einfache Bestätigung ohne laufenden Prozess → Reboot akzeptieren
+                self.logger.info(
+                    f"[{self.cinema_name}] Reboot-Bestätigung akzeptiert – Reboot läuft.")
+                dialog.accept()
+
+        except PlaywrightTimeout:
+            # Kein Dialog → IMS3000 startet Reboot direkt ohne Bestätigung
+            self.logger.info(
+                f"[{self.cinema_name}] Kein Bestätigungs-Dialog → IMS3000 Reboot direkt gestartet.")
 
         # Kein blockierender Dialog → Countdown abwarten (nichts klicken)
-        self.logger.info(f"[{self.cinema_name}] Kein Popup erkannt → IMS3000 Reboot läuft.")
+        self.logger.info(f"[{self.cinema_name}] Warte auf Reboot-Countdown...")
         countdown_found = self._wait_for_countdown(page)
         if not countdown_found:
             self.logger.warning(

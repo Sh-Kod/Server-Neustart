@@ -7,6 +7,7 @@ Alle Nachrichten enthalten:
   - Grund / Status
   - Nächster Retry-Zeitpunkt (wenn vorhanden)
 """
+import html
 import logging
 import threading
 import requests
@@ -148,7 +149,7 @@ class TelegramSender:
             f"{EMOJI_WARN} <b>Reboot abgebrochen – UI unklar</b>\n"
             f"Kino: <b>{cinema_name}</b>\n"
             f"Zeit: {self._now_str()}\n"
-            f"Detail: {detail}\n"
+            f"Detail: {html.escape(str(detail)[:400])}\n"
             f"Aktion: Konservativ abgebrochen (kein Reboot).{retry_str}"
         )
         self._send(text)
@@ -167,7 +168,7 @@ class TelegramSender:
             f"{EMOJI_ERROR} <b>Technischer Fehler</b>\n"
             f"Kino: <b>{cinema_name}</b>\n"
             f"Zeit: {self._now_str()}\n"
-            f"Fehler: {error}{retry_str}"
+            f"Fehler: {html.escape(str(error)[:400])}{retry_str}"
         )
         self._send(text)
 
