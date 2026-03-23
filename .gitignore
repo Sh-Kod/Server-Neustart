@@ -6,6 +6,9 @@ venv/
 .venv/
 *.egg-info/
 
+# Konfiguration mit Zugangsdaten (NICHT ins Repo!)
+config.yaml
+
 # Laufzeit-Dateien
 state.json
 schedule_today.json

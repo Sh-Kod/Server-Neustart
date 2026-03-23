@@ -1,0 +1,83 @@
+# ============================================================
+# Cinema Server Reboot - Konfiguration (Beispiel)
+# ============================================================
+# ANLEITUNG:
+#   1. Diese Datei kopieren und in "config.yaml" umbenennen
+#   2. Alle Werte anpassen (IPs, Zugangsdaten, Telegram)
+#   3. config.yaml NIEMALS ins Git einchecken!
+# ============================================================
+
+cinemas:
+  - id: kino01
+    name: "Kino 01"
+    ip: "192.168.1.11"        # IP-Adresse des Kino-Servers
+    type: "doremi"            # Typ: "doremi" oder "ims3000"
+    enabled: true
+
+  - id: kino02
+    name: "Kino 02"
+    ip: "192.168.1.12"
+    type: "doremi"
+    enabled: true
+
+  # Weitere Kinos nach Bedarf hier ergänzen...
+
+# Login-Daten (gelten für alle Kinos)
+credentials:
+  username: "admin"
+  password: "DEIN_PASSWORT_HIER"
+
+# Wartungsfenster (Zeitzone beachten!)
+maintenance_window:
+  start: "00:00"
+  end: "23:59"
+  timezone: "Europe/Berlin"
+  # Erlaubte Wochentage (leer = alle Tage aktiv)
+  # Beispiel: [Mo, Di, Mi, Do, Fr]  <- nur Werktage
+  allowed_days: []
+
+# Telegram Bot-Konfiguration
+# Bot-Token erhältst du von @BotFather, Chat-ID von @userinfobot
+telegram:
+  bot_token: "DEIN_BOT_TOKEN_HIER"    # Von @BotFather
+  chat_id: "DEINE_CHAT_ID_HIER"       # Von @userinfobot
+  enabled: true
+  admin_chat_ids: []
+
+# Programm-Einstellungen
+settings:
+  # DRY_RUN = true -> Programm navigiert und erkennt Zustände, klickt aber NICHT auf Reboot
+  # Erst auf false setzen, wenn du das Programm vollständig getestet hast!
+  dry_run: true
+
+  # Wartezeit nach Reboot-Auslösung, bis Server wieder erreichbar sein muss (Minuten)
+  reboot_wait_minutes: 4
+
+  # Maximale Wartezeit gesamt (Minuten) - danach gilt Reboot als "unklar"
+  reboot_timeout_minutes: 20
+
+  # Wartezeit zwischen Wiederholungsversuchen bei Blockierung (Minuten)
+  retry_interval_minutes: 60
+
+  # HTTP-Timeout für Erreichbarkeitscheck (Sekunden)
+  http_timeout_seconds: 10
+
+  # Browser sichtbar oder headless (true = unsichtbar im Hintergrund)
+  headless: false
+
+  # Log-Verzeichnis (relativ zum Programmordner)
+  log_dir: "logs"
+
+  # State-Datei für Persistenz (relativ zum Programmordner)
+  state_file: "state.json"
+
+  # Lokaler Alarm bei Playback-Blockierung (Windows-Benachrichtigung + Ton)
+  local_alarm_enabled: true
+
+  # Hauptschleifen-Intervall in Sekunden (wie oft der Scheduler prüft)
+  main_loop_interval_seconds: 60
+
+  # Alle fälligen Kinos gleichzeitig neu starten (statt nacheinander)
+  # true  -> alle Kinos parallel (~7-8 Min. für 13 Kinos)
+  # false -> nacheinander (~65 Min. für 13 Kinos)
+  parallel_reboot: true
