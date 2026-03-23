@@ -282,12 +282,39 @@ class IMS3000Handler(BaseHandler):
             f"Shutdown={page.locator(self.SEL_DIALOG_SHUTDOWN).count() > 0}"
         )
 
+        # Button-JS analysieren
+        btn_info = page.evaluate("""() => {
+            const btn = Array.from(document.querySelectorAll('button'))
+                .find(b => b.textContent.trim() === 'Reboot');
+            if (!btn) return 'NICHT GEFUNDEN';
+            return JSON.stringify({
+                onclick: btn.getAttribute('onclick'),
+                type: btn.type,
+                name: btn.name,
+                id: btn.id,
+                disabled: btn.disabled,
+                outerHTML: btn.outerHTML.substring(0, 300)
+            });
+        }""")
+        self.logger.info(f"[{self.cinema_name}] Reboot-Button HTML: {btn_info}")
+
+        # Netzwerk-Requests während des Klicks abfangen
+        captured_requests: list[str] = []
+        page.on("request", lambda req: captured_requests.append(
+            f"{req.method} {req.url}" if req.method != "GET" or "power" in req.url.lower()
+            else None
+        ) if ("power" in req.url.lower() or "reboot" in req.url.lower()
+              or req.method == "POST") else None)
+
         # ✅ NUR "Reboot" klicken
         page.locator(self.SEL_DIALOG_REBOOT).click()
         self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
 
         # Debug-Screenshot direkt nach Reboot-Klick (zeigt ob Dialog geschlossen)
         time.sleep(1)
+        reqs = [r for r in captured_requests if r]
+        self.logger.info(f"[{self.cinema_name}] Netzwerk-Requests nach Reboot-Klick: "
+                         f"{reqs if reqs else 'KEINE'}")
         self.take_screenshot_on_error(page, "ims3000_after_reboot_click")
 
         # ── KRITISCHE PHASE: Playback- oder Ingest-Popup abfangen ─────────────
