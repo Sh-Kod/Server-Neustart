@@ -1,6 +1,5 @@
 import asyncio
-from puresnmp import Client
-from puresnmp.credentials import V2C
+import aiosnmp
 
 IP = "172.20.23.21"
 
@@ -12,13 +11,14 @@ oids = [
 async def main():
     print(f"\nSNMP-Test Projektor {IP}")
     print("=" * 40)
-    client = Client(IP, V2C("public"), port=161)
-    for label, oid in oids:
-        try:
-            result = await client.get(oid)
-            print(f"{label}: {result}")
-        except Exception as e:
-            print(f"{label}: FEHLER – {e}")
+    async with aiosnmp.Snmp(host=IP, port=161, community="public", timeout=5) as snmp:
+        for label, oid in oids:
+            try:
+                result = await snmp.get([oid])
+                for varbind in result:
+                    print(f"{label}: {varbind.value}")
+            except Exception as e:
+                print(f"{label}: FEHLER – {e}")
     print("=" * 40)
 
 asyncio.run(main())
