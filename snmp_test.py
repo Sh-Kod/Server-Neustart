@@ -1,4 +1,5 @@
-from pysnmp.hlapi import *
+from puresnmp import Client
+from puresnmp.credentials import V2C
 
 IP = "172.20.23.21"
 
@@ -9,16 +10,13 @@ oids = [
 
 print(f"\nSNMP-Test Projektor {IP}")
 print("=" * 40)
+
+client = Client(IP, V2C("public"), port=161)
 for label, oid in oids:
-    ei, es, eI, vb = next(getCmd(
-        SnmpEngine(),
-        CommunityData("public"),
-        UdpTransportTarget((IP, 161), timeout=5),
-        ContextData(),
-        ObjectType(ObjectIdentity(oid))
-    ))
-    if ei:
-        print(f"{label}: FEHLER – {ei}")
-    else:
-        print(f"{label}: {vb[0].prettyPrint()}")
+    try:
+        result = client.get(oid)
+        print(f"{label}: {result}")
+    except Exception as e:
+        print(f"{label}: FEHLER – {e}")
+
 print("=" * 40)
