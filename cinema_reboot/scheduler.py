@@ -116,16 +116,19 @@ class Scheduler:
     def is_due(self, cinema_id: str) -> bool:
         """
         Gibt True zurück, wenn ein Kino jetzt bearbeitet werden soll.
-        Bedingungen:
-          1. Im Wartungsfenster
-          2. Zufällige Startzeit erreicht
-          3. Kein aktiver Retry in der Zukunft
-          4. Noch nicht erfolgreich heute
-        """
-        if not self.in_maintenance_window():
-            return False
 
+        Zwei Modi:
+          RETRY-MODUS  (next_retry_time gesetzt und erreicht):
+            – Nur Uhrzeit des Wartungsfensters prüfen, KEIN Wochentag-Check.
+            – Ermöglicht Retries nach Fehlschlag auch außerhalb des geplanten Tages
+              (z.B. manueller Reboot am Montag).
+
+          PLANUNGS-MODUS (kein aktiver Retry):
+            – Vollständiger Wartungsfenster-Check inkl. Wochentag.
+            – Zufällige Startzeit muss erreicht sein.
+        """
         today = self._today_str()
+        now = self._now()
 
         # Schon erfolgreich heute?
         if self._state.was_successful_today(cinema_id, today):
@@ -135,20 +138,24 @@ class Scheduler:
         if self._state.get_status(cinema_id) == Status.IN_PROGRESS:
             return False
 
-        # Zufällige Startzeit erreicht?
-        scheduled = self.get_scheduled_time(cinema_id)
-        now = self._now()
-        if scheduled is None or now < scheduled:
-            return False
-
-        # Aktiver Retry in der Zukunft?
+        # Aktiver Retry vorhanden?
         next_retry = self._state.get_next_retry_time(cinema_id)
         if next_retry is not None:
-            # Zeitzonen-sicher vergleichen
             if next_retry.tzinfo is None:
                 next_retry = self._tz.localize(next_retry)
             if now < next_retry:
-                return False
+                return False  # Retry-Zeit noch nicht erreicht
+            # Retry fällig → nur Uhrzeit prüfen, kein Wochentag
+            return self.is_within_window(now)
+
+        # Kein Retry → Planungs-Modus: vollständiger Wartungsfenster-Check
+        if not self.in_maintenance_window():
+            return False
+
+        # Zufällige Startzeit erreicht?
+        scheduled = self.get_scheduled_time(cinema_id)
+        if scheduled is None or now < scheduled:
+            return False
 
         return True
 
@@ -174,21 +181,14 @@ class Scheduler:
         return from_time + timedelta(minutes=self._config.retry_interval_minutes)
 
     def is_within_window(self, dt: datetime) -> bool:
-        """Prüft, ob ein Zeitpunkt im aktuellen Wartungsfenster liegt (Start UND Ende)."""
+        """Prüft, ob ein Zeitpunkt innerhalb der Wartungsfenster-Uhrzeit liegt.
+        Kein Wochentag-Check – gilt auch für Retries außerhalb des geplanten Tages."""
         now = self._now()
         window_start = self._parse_time(self._config.mw_start, now)
         window_end = self._parse_time(self._config.mw_end, now)
         if dt.tzinfo is None:
             dt = self._tz.localize(dt)
-        if not (window_start <= dt < window_end):
-            return False
-        # Wochentag-Filter
-        allowed_days = self._config.allowed_days
-        if allowed_days:
-            day_abbr = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][dt.weekday()]
-            if day_abbr not in allowed_days:
-                return False
-        return True
+        return window_start <= dt < window_end
 
     def summary(self) -> str:
         """Gibt eine lesbare Übersicht des heutigen Plans aus."""

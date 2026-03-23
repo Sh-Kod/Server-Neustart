@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 
+
 # Alle möglichen Status-Werte
 class Status:
     IDLE = "idle"
@@ -94,43 +95,43 @@ class StateManager:
             entry["last_error"] = None
             self._save()
 
-    def set_blocked_by_playback(self, cinema_id: str, next_retry: datetime) -> None:
+    def set_blocked_by_playback(self, cinema_id: str, next_retry: Optional[datetime]) -> None:
         with self._lock:
             entry = self._get_cinema(cinema_id)
             entry["status"] = Status.BLOCKED_BY_PLAYBACK
-            entry["next_retry_time"] = next_retry.isoformat()
+            entry["next_retry_time"] = next_retry.isoformat() if next_retry else None
             entry["last_error"] = "Playback läuft – Reboot abgebrochen"
             self._save()
 
-    def set_blocked_by_transfer(self, cinema_id: str, next_retry: datetime) -> None:
+    def set_blocked_by_transfer(self, cinema_id: str, next_retry: Optional[datetime]) -> None:
         with self._lock:
             entry = self._get_cinema(cinema_id)
             entry["status"] = Status.BLOCKED_BY_TRANSFER
-            entry["next_retry_time"] = next_retry.isoformat()
+            entry["next_retry_time"] = next_retry.isoformat() if next_retry else None
             entry["last_error"] = "Transfer/Ingest/Export aktiv – Reboot abgebrochen"
             self._save()
 
-    def set_offline(self, cinema_id: str, next_retry: datetime) -> None:
+    def set_offline(self, cinema_id: str, next_retry: Optional[datetime]) -> None:
         with self._lock:
             entry = self._get_cinema(cinema_id)
             entry["status"] = Status.OFFLINE
-            entry["next_retry_time"] = next_retry.isoformat()
+            entry["next_retry_time"] = next_retry.isoformat() if next_retry else None
             entry["last_error"] = "Server nicht erreichbar"
             self._save()
 
-    def set_ui_unclear(self, cinema_id: str, next_retry: datetime, detail: str = "") -> None:
+    def set_ui_unclear(self, cinema_id: str, next_retry: Optional[datetime], detail: str = "") -> None:
         with self._lock:
             entry = self._get_cinema(cinema_id)
             entry["status"] = Status.UI_UNCLEAR
-            entry["next_retry_time"] = next_retry.isoformat()
+            entry["next_retry_time"] = next_retry.isoformat() if next_retry else None
             entry["last_error"] = f"UI-Zustand unklar – konservativ abgebrochen. {detail}"
             self._save()
 
-    def set_error(self, cinema_id: str, next_retry: datetime, error: str) -> None:
+    def set_error(self, cinema_id: str, next_retry: Optional[datetime], error: str) -> None:
         with self._lock:
             entry = self._get_cinema(cinema_id)
             entry["status"] = Status.ERROR
-            entry["next_retry_time"] = next_retry.isoformat()
+            entry["next_retry_time"] = next_retry.isoformat() if next_retry else None
             entry["last_error"] = error
             self._save()
 

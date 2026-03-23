@@ -92,10 +92,10 @@ class RebootEngine:
 
             # Nur innerhalb Wartungsfenster Retry planen
             if not self._scheduler.is_within_window(next_retry):
-                logger.info(f"[{cinema_name}] Nächste Wartungsfenster nicht mehr heute.")
+                logger.info(f"[{cinema_name}] Retry-Zeit außerhalb des Wartungsfensters – kein weiterer Retry heute.")
                 next_retry = None
 
-            self._state.set_offline(cinema_id, next_retry or self._now())
+            self._state.set_offline(cinema_id, next_retry)
             self._telegram.send_server_offline(cinema_name, ip, next_retry)
             return RebootOutcome(
                 result=RebootResult.OFFLINE,
@@ -214,15 +214,15 @@ class RebootEngine:
 
         result = outcome.result
 
-        # Nächsten Retry berechnen (nur wenn noch im Wartungsfenster)
+        # Nächsten Retry berechnen (nur wenn Retry-Zeit noch im Wartungsfenster liegt)
         if result not in (RebootResult.SUCCESS, RebootResult.DRY_RUN_OK):
             candidate = self._scheduler.next_retry_time()
             if self._scheduler.is_within_window(candidate):
                 next_retry = candidate
             else:
                 logger.info(
-                    f"[{cinema_name}] Nächstes Wartungsfenster nicht mehr erreichbar → "
-                    "Retry erst morgen."
+                    f"[{cinema_name}] Retry-Zeit liegt außerhalb des Wartungsfensters → "
+                    "kein weiterer Retry heute."
                 )
 
         # State aktualisieren
@@ -237,29 +237,29 @@ class RebootEngine:
             logger.info(f"[{cinema_name}] [DRY-RUN] Als 'success' für heute markiert.")
 
         elif result == RebootResult.BLOCKED_BY_PLAYBACK:
-            self._state.set_blocked_by_playback(cinema_id, next_retry or self._now())
+            self._state.set_blocked_by_playback(cinema_id, next_retry)
             self._telegram.send_reboot_blocked_playback(cinema_name, next_retry)
             # LOKALER ALARM (Ton + Windows-Notification)
             raise_playback_alarm(cinema_name, enabled=self._config.local_alarm_enabled)
 
         elif result == RebootResult.BLOCKED_BY_TRANSFER:
-            self._state.set_blocked_by_transfer(cinema_id, next_retry or self._now())
+            self._state.set_blocked_by_transfer(cinema_id, next_retry)
             self._telegram.send_reboot_blocked_transfer(cinema_name, next_retry)
 
         elif result == RebootResult.OFFLINE:
-            self._state.set_offline(cinema_id, next_retry or self._now())
+            self._state.set_offline(cinema_id, next_retry)
             # Telegram bereits in run() gesendet
 
         elif result == RebootResult.TIMEOUT:
-            self._state.set_error(cinema_id, next_retry or self._now(), outcome.message)
+            self._state.set_error(cinema_id, next_retry, outcome.message)
             self._telegram.send_reboot_timeout(cinema_name)
 
         elif result == RebootResult.UI_UNCLEAR:
-            self._state.set_ui_unclear(cinema_id, next_retry or self._now(), outcome.message)
+            self._state.set_ui_unclear(cinema_id, next_retry, outcome.message)
             self._telegram.send_ui_unclear(cinema_name, outcome.message, next_retry)
 
         elif result in (RebootResult.LOGIN_FAILED, RebootResult.ERROR):
-            self._state.set_error(cinema_id, next_retry or self._now(), outcome.message)
+            self._state.set_error(cinema_id, next_retry, outcome.message)
             self._telegram.send_error(cinema_name, outcome.message, next_retry)
 
         logger.info(
