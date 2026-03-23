@@ -16,6 +16,7 @@ from typing import Optional
 import pytz
 from playwright.sync_api import sync_playwright
 
+from .barco_projector import read_lamp_on
 from .config import Config
 from .handlers.base import RebootOutcome, RebootResult
 from .handlers.doremi import DoremiHandler
@@ -103,6 +104,39 @@ class RebootEngine:
             )
 
         logger.info(f"[{cinema_name}] Server erreichbar ✓")
+
+        # ── Projektor-Lampenstatus lesen (optional, nur wenn projector_ip konfiguriert) ──
+        projector_ip = cinema.get("projector_ip")
+        if projector_ip:
+            projector_port = int(cinema.get("projector_port", 43728))
+            logger.info(
+                f"[{cinema_name}] Projektor-Check: Lampenstatus lesen "
+                f"({projector_ip}:{projector_port})..."
+            )
+            lamp_on = read_lamp_on(projector_ip, projector_port)
+            if lamp_on is True:
+                # Lampe AN → Vorstellung läuft → KEIN Reboot
+                logger.warning(
+                    f"[{cinema_name}] ⛔ Projektor-Lampe AN "
+                    f"→ Vorstellung läuft! Reboot abgebrochen."
+                )
+                outcome = RebootOutcome(
+                    result=RebootResult.BLOCKED_BY_PLAYBACK,
+                    message="Projektor-Lampe AN – Vorstellung läuft.",
+                )
+                self._process_outcome(cinema, outcome, today, silent=silent)
+                return outcome
+            elif lamp_on is False:
+                logger.info(f"[{cinema_name}] Projektor-Lampe AUS ✓ – Reboot erlaubt.")
+            else:
+                # None = Projektor nicht erreichbar oder Antwort unklar
+                logger.warning(
+                    f"[{cinema_name}] ⚠️  Projektor-Lampenstatus nicht lesbar "
+                    f"({projector_ip}) – Reboot wird trotzdem fortgesetzt."
+                )
+        else:
+            logger.debug(f"[{cinema_name}] Kein projector_ip konfiguriert – Projektor-Check übersprungen.")
+
         if not silent:
             self._telegram.send_start_attempt(cinema_name, dry_run=self._config.dry_run)
 
