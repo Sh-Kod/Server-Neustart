@@ -234,3 +234,26 @@ class TelegramSender:
     def send_status(self, status_text: str) -> None:
         """Sendet eine freie Status-Nachricht."""
         self._send(f"{EMOJI_INFO} {status_text}")
+
+    def send_all_done(self, cinema_names: list[str]) -> None:
+        """Sendet eine Erfolgsmeldung wenn alle Säle erfolgreich neu gestartet wurden."""
+        names = "\n".join(f"  {EMOJI_OK} {n}" for n in cinema_names)
+        self._send(
+            f"{EMOJI_OK} <b>Alle Säle erledigt!</b>\n"
+            f"Zeit: {self._now_str()}\n\n"
+            f"{names}"
+        )
+
+    def send_window_closed_report(self, failed: list[str], succeeded: list[str]) -> None:
+        """Sendet einen Abschlussbericht wenn das Wartungsfenster geschlossen wurde."""
+        lines = [f"{EMOJI_WARN} <b>Wartungsfenster beendet – nicht alle Säle erledigt</b>",
+                 f"Zeit: {self._now_str()}", ""]
+        if failed:
+            lines.append(f"{EMOJI_ERROR} Nicht geschafft ({len(failed)}):")
+            for n in failed:
+                lines.append(f"  • {n}")
+        if succeeded:
+            lines.append(f"\n{EMOJI_OK} Erfolgreich ({len(succeeded)}):")
+            for n in succeeded:
+                lines.append(f"  • {n}")
+        self._send("\n".join(lines))
