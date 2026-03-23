@@ -26,6 +26,8 @@ from cinema_reboot.state_manager import StateManager
 from cinema_reboot.telegram_controller import TelegramController
 from cinema_reboot.telegram_sender import TelegramSender
 from cinema_reboot.updater import check_and_update, start_background_updater
+from cinema_projector.lamp_config import LampConfig
+from cinema_projector.lamp_monitor import LampMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +163,42 @@ def cmd_test_projector(config: Config, cinema_id: str) -> None:
         print(f"     Projektor nicht erreichbar oder IP falsch.")
         print(f"     Reboot würde trotzdem fortgesetzt (mit Warnung).")
     print(f"{'═' * 50}\n")
+
+
+def cmd_test_lamps(config_path: str) -> None:
+    """Prüft sofort alle konfigurierten Projektoren via SNMP."""
+    from cinema_projector.lamp_config import LampConfig
+    from cinema_projector.lamp_monitor import LampMonitor
+
+    try:
+        lamp_cfg = LampConfig(config_path)
+    except Exception as e:
+        print(f"Fehler beim Laden der Lampen-Konfiguration: {e}")
+        sys.exit(1)
+
+    if not lamp_cfg.projectors:
+        print("Keine Projektoren in config.yaml konfiguriert (projector_ip fehlt).")
+        sys.exit(1)
+
+    monitor = LampMonitor(lamp_cfg)
+    results = monitor.run_now()
+
+    print(f"\n{'═' * 60}")
+    print(f"  Lampen-Test – {len(results)} Projektoren")
+    print(f"  Warn: ≥{lamp_cfg.warn_percent:.0f}%   Kritisch: ≥{lamp_cfg.critical_percent:.0f}%")
+    print(f"{'═' * 60}")
+    for r in results:
+        if r.ok:
+            if r.percent >= lamp_cfg.critical_percent:
+                icon = "⛔"
+            elif r.percent >= lamp_cfg.warn_percent:
+                icon = "⚠️ "
+            else:
+                icon = "✅"
+            print(f"  {icon} {r.cinema_name:<10} {r.runtime_hours:>5}h / {r.max_hours}h = {r.percent:.1f}%")
+        else:
+            print(f"  ❓ {r.cinema_name:<10} nicht erreichbar – {r.error}")
+    print(f"{'═' * 60}\n")
 
 
 def main_loop(
@@ -331,6 +369,11 @@ def main():
         metavar="KINO_ID",
         help="Liest nur den Projektor-Lampenstatus für ein Kino (kein Reboot!)",
     )
+    parser.add_argument(
+        "--test-lamps",
+        action="store_true",
+        help="Prüft sofort alle Lampen via SNMP und zeigt Ergebnis (kein Reboot!)",
+    )
     args = parser.parse_args()
 
     config_path = os.path.abspath(args.config)
@@ -373,6 +416,10 @@ def main():
         cmd_test_projector(config, args.test_projector)
         return
 
+    if args.test_lamps:
+        cmd_test_lamps(config_path)
+        return
+
     # Auto-Update prüfen – bei Änderung Prozess neu starten
     if check_and_update():
         os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -387,12 +434,26 @@ def main():
     # Hintergrund-Updater starten (prüft alle 30 Sek. auf neue Commits)
     start_background_updater(app_state, notify_fn=telegram.send_update_installed)
 
+    # Lampen-Monitor starten (täglich um konfigurierte Zeit, unabhängig vom Reboot)
+    lamp_monitor = None
+    try:
+        lamp_cfg = LampConfig(config_path)
+        if lamp_cfg.enabled and lamp_cfg.projectors:
+            lamp_monitor = LampMonitor(lamp_cfg)
+            lamp_monitor.start()
+        else:
+            logger.info("Lampen-Monitor deaktiviert oder keine Projektoren konfiguriert.")
+    except Exception as e:
+        logger.warning(f"Lampen-Monitor konnte nicht gestartet werden: {e}")
+
     # Hauptschleife
     try:
         main_loop(config, app_state, state, scheduler, engine, telegram)
     finally:
         if controller:
             controller.stop()
+        if lamp_monitor:
+            lamp_monitor.stop()
 
     # Neustart nach Hintergrund-Update
     if app_state.update_available:
