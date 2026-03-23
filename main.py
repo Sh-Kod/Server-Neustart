@@ -24,6 +24,7 @@ from cinema_reboot.scheduler import Scheduler
 from cinema_reboot.state_manager import StateManager
 from cinema_reboot.telegram_controller import TelegramController
 from cinema_reboot.telegram_sender import TelegramSender
+from cinema_reboot.updater import check_and_update
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,10 @@ def main():
     if args.run:
         cmd_run_single(config, args.run, engine)
         return
+
+    # Auto-Update prüfen – bei Änderung Prozess neu starten
+    if check_and_update():
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     # Telegram-Controller starten (falls aktiviert)
     if controller:
