@@ -285,15 +285,24 @@ class IMS3000Handler(BaseHandler):
         # ✅ NUR "Reboot" klicken
         page.locator(self.SEL_DIALOG_REBOOT).click()
         self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
-        time.sleep(1)
 
-        # ── KRITISCHE PHASE: Playback-Popup abfangen ──────────────────────────
-        popup_outcome = self._handle_popup(page)
+        # ── KRITISCHE PHASE: Playback- oder Ingest-Popup abfangen ─────────────
+        # IMS3000 braucht 2-4 Sekunden bis das Popup erscheint → mehrmals prüfen
+        popup_outcome = None
+        for attempt in range(4):
+            time.sleep(1)
+            popup_outcome = self._handle_popup(page)
+            if popup_outcome is not None:
+                break  # Popup erkannt und Abbrechen geklickt
+            self.logger.debug(
+                f"[{self.cinema_name}] Popup-Check {attempt + 1}/4: kein Popup sichtbar."
+            )
+
         if popup_outcome is not None:
             return popup_outcome
 
-        # Kein Popup → Countdown abwarten (nichts klicken)
-        self.logger.info(f"[{self.cinema_name}] Kein Playback-Popup → IMS3000 Reboot läuft.")
+        # Kein Popup nach 4 Sekunden → Countdown abwarten (nichts klicken)
+        self.logger.info(f"[{self.cinema_name}] Kein Popup erkannt → IMS3000 Reboot läuft.")
         self._wait_for_countdown(page)
         return None
 
