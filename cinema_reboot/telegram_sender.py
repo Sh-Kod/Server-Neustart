@@ -235,6 +235,15 @@ class TelegramSender:
         """Sendet eine freie Status-Nachricht."""
         self._send(f"{EMOJI_INFO} {status_text}")
 
+    def send_update_installed(self, commit_count: int) -> None:
+        """Benachrichtigung dass ein Update installiert wurde und Programm neu startet."""
+        self._send(
+            f"🔄 <b>Update installiert</b>\n"
+            f"Zeit: {self._now_str()}\n"
+            f"{commit_count} neuer Commit(s) geladen.\n"
+            f"Programm startet jetzt automatisch neu..."
+        )
+
     def send_all_done(self, cinema_names: list[str]) -> None:
         """Sendet eine Erfolgsmeldung wenn alle Säle erfolgreich neu gestartet wurden."""
         names = "\n".join(f"  {EMOJI_OK} {n}" for n in cinema_names)

@@ -333,7 +333,7 @@ def main():
         logger.info("Telegram-Bot deaktiviert (telegram.enabled = false).")
 
     # Hintergrund-Updater starten (prüft alle 30 Sek. auf neue Commits)
-    start_background_updater(app_state)
+    start_background_updater(app_state, notify_fn=telegram.send_update_installed)
 
     # Hauptschleife
     try:
