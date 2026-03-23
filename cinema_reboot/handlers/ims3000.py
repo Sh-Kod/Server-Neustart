@@ -65,7 +65,7 @@ class IMS3000Handler(BaseHandler):
     SEL_DIALOG_REBOOT   = "button:has-text('Reboot')"    # ✅ EINZIGER ERLAUBTER KLICK
     SEL_DIALOG_STANDBY  = "button:has-text('Standby')"   # ❌ nur zur Erkennung
     SEL_DIALOG_SHUTDOWN = "button:has-text('Shutdown')"  # ❌ nur zur Erkennung
-    SEL_DIALOG_CLOSE    = "button:has-text('Close')"     # Abbruch
+    SEL_DIALOG_CLOSE    = "button[onclick*='cancelSystemCommand']"  # Close im Power-Dialog
 
     # ── Pre-Check Playback-Bereich (Mitte des Dashboards) ────────────────────
     # "No playback in progress" MUSS sichtbar sein – sonst kein Reboot
