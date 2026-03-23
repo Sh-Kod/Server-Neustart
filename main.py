@@ -126,6 +126,7 @@ def main_loop(
     state: StateManager,
     scheduler: Scheduler,
     engine: RebootEngine,
+    telegram: TelegramSender,
 ) -> None:
     """Hauptschleife – läuft dauerhaft und startet Reboots nach Plan."""
     global _running
@@ -152,10 +153,19 @@ def main_loop(
 
     interval = config.main_loop_interval_seconds
     _last_scheduler_restart = app_state.last_scheduler_restart
+    _was_in_window = False          # Für Fenster-Ende Erkennung
+    _all_done_reported = False      # Damit wir "Alle erledigt" nur einmal senden
+    _window_closed_reported = False # Damit wir den Abschlussbericht nur einmal senden
+    _last_date = ""                 # Für Tageswechsel-Erkennung
 
     while _running and not app_state.shutdown_requested:
         # Tagesreset für alle Kinos prüfen
         today = datetime.now(pytz.timezone(config.timezone)).strftime("%Y-%m-%d")
+        if today != _last_date:
+            _last_date = today
+            _all_done_reported = False
+            _window_closed_reported = False
+            _was_in_window = False
         for cinema in config.cinemas:
             state.reset_for_new_day(cinema["id"], today)
 
@@ -207,6 +217,28 @@ def main_loop(
                 logger.debug("Im Wartungsfenster, aber kein Kino fällig.")
             else:
                 logger.debug("Außerhalb des Wartungsfensters – warte...")
+
+        # ── "Alle Säle erledigt" Nachricht ───────────────────────────────────
+        if not _all_done_reported and scheduler.in_maintenance_window():
+            enabled_ids = [c["id"] for c in config.cinemas if c.get("enabled", True)]
+            all_done = all(state.was_successful_today(cid, today) for cid in enabled_ids)
+            if all_done and enabled_ids:
+                names = [c["name"] for c in config.cinemas if c.get("enabled", True)]
+                logger.info("Alle Säle erfolgreich neu gestartet – sende Abschlussmeldung.")
+                telegram.send_all_done(names)
+                _all_done_reported = True
+
+        # ── Wartungsfenster gerade geschlossen → Abschlussbericht ────────────
+        in_window_now = scheduler.in_maintenance_window()
+        if _was_in_window and not in_window_now and not _window_closed_reported:
+            enabled = [c for c in config.cinemas if c.get("enabled", True)]
+            failed = [c["name"] for c in enabled if not state.was_successful_today(c["id"], today)]
+            succeeded = [c["name"] for c in enabled if state.was_successful_today(c["id"], today)]
+            if failed:
+                logger.info(f"Wartungsfenster beendet. Nicht erledigt: {failed}")
+                telegram.send_window_closed_report(failed, succeeded)
+            _window_closed_reported = True
+        _was_in_window = in_window_now
 
         _sleep_interruptible(interval, app_state)
 
@@ -301,11 +333,11 @@ def main():
         logger.info("Telegram-Bot deaktiviert (telegram.enabled = false).")
 
     # Hintergrund-Updater starten (prüft alle 30 Sek. auf neue Commits)
-    start_background_updater(app_state)
+    start_background_updater(app_state, notify_fn=telegram.send_update_installed)
 
     # Hauptschleife
     try:
-        main_loop(config, app_state, state, scheduler, engine)
+        main_loop(config, app_state, state, scheduler, engine, telegram)
     finally:
         if controller:
             controller.stop()

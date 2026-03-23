@@ -116,11 +116,13 @@ def check_and_update() -> bool:
     return False
 
 
-def start_background_updater(app_state: "AppState") -> None:
+def start_background_updater(app_state: "AppState", notify_fn=None) -> None:
     """Startet einen Daemon-Thread, der alle 30 Sekunden auf Updates prüft.
 
     Bei einem gefundenen Update wird der Code gezogen und app_state.signal_update()
     aufgerufen – das beendet die Hauptschleife, woraufhin main.py den Prozess neu startet.
+
+    notify_fn: optionale Funktion die vor dem Neustart aufgerufen wird (z.B. Telegram-Nachricht)
     """
     if not _git_available():
         logger.debug("Git nicht gefunden – Hintergrund-Updater deaktiviert.")
@@ -143,6 +145,11 @@ def start_background_updater(app_state: "AppState") -> None:
                     logger.info(f"Hintergrund-Update: {count} neuer Commit(s) gefunden – installiere...")
                     if _apply_update(branch):
                         logger.info("Hintergrund-Update abgeschlossen – signalisiere Neustart.")
+                        if notify_fn:
+                            try:
+                                notify_fn(count)
+                            except Exception as e:
+                                logger.warning(f"Update-Benachrichtigung fehlgeschlagen: {e}")
                         app_state.signal_update()
                         break
                 elif count == 0:

@@ -43,6 +43,9 @@ class DS(str, Enum):
     # Herunterfahren
     SHUTDOWN_CONFIRM = "shutdown_confirm"
 
+    # Headless (Befehl 11)
+    HEADLESS_CONFIRM = "headless_confirm"
+
 
 @dataclass
 class DialogContext:
