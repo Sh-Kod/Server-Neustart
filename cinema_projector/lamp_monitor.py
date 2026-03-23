@@ -65,6 +65,7 @@ class LampMonitor:
         self._state.mark_checked()
 
         results = self._run_checks()
+        self._state.save_results(results)
 
         if self._config.telegram_enabled:
             send_daily_report(

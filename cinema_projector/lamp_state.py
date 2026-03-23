@@ -36,3 +36,19 @@ class LampState:
     def mark_checked(self) -> None:
         self._data["last_check_date"] = date.today().isoformat()
         self._save()
+
+    def save_results(self, results: list) -> None:
+        """Speichert das letzte Prüfergebnis für den Status-Befehl."""
+        self._data["last_results"] = [
+            {
+                "id":      r.cinema_id,
+                "name":    r.cinema_name,
+                "ok":      r.ok,
+                "runtime": r.runtime_hours,
+                "max":     r.max_hours,
+                "percent": round(r.percent, 1) if r.percent is not None else None,
+                "error":   r.error,
+            }
+            for r in results
+        ]
+        self._save()

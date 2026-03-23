@@ -27,6 +27,7 @@ from cinema_reboot.telegram_controller import TelegramController
 from cinema_reboot.telegram_sender import TelegramSender
 from cinema_reboot.updater import check_and_update, start_background_updater
 from cinema_projector.lamp_config import LampConfig
+from cinema_projector.lamp_controller import LampTelegramController
 from cinema_projector.lamp_monitor import LampMonitor
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def handle_shutdown(sig, frame):
     _running = False
 
 
-def build_components(config: Config, config_path: str):
+def build_components(config: Config, config_path: str, lamp_monitor=None, lamp_config=None):
     """Erstellt alle Kern-Komponenten."""
     app_state = AppState(timezone=config.timezone)
     state = StateManager(config.state_file)
@@ -50,13 +51,24 @@ def build_components(config: Config, config_path: str):
     engine = RebootEngine(config, state, scheduler, telegram)
     controller = None
     if config.telegram_enabled:
-        controller = TelegramController(
-            config=config,
-            app_state=app_state,
-            state_manager=state,
-            scheduler=scheduler,
-            config_path=config_path,
-        )
+        if lamp_monitor and lamp_config:
+            controller = LampTelegramController(
+                lamp_monitor=lamp_monitor,
+                lamp_config=lamp_config,
+                config=config,
+                app_state=app_state,
+                state_manager=state,
+                scheduler=scheduler,
+                config_path=config_path,
+            )
+        else:
+            controller = TelegramController(
+                config=config,
+                app_state=app_state,
+                state_manager=state,
+                scheduler=scheduler,
+                config_path=config_path,
+            )
     return app_state, state, telegram, scheduler, engine, controller
 
 
@@ -394,9 +406,19 @@ def main():
         config._raw["settings"]["dry_run"] = True
         logger.warning("Dry-Run via Kommandozeile aktiviert.")
 
+    # Lampen-Monitor vorzeitig erstellen (wird für LampTelegramController benötigt)
+    lamp_cfg     = None
+    lamp_monitor = None
+    try:
+        lamp_cfg = LampConfig(config_path)
+        if lamp_cfg.enabled and lamp_cfg.projectors:
+            lamp_monitor = LampMonitor(lamp_cfg)
+    except Exception as e:
+        logger.warning(f"Lampen-Konfiguration konnte nicht geladen werden: {e}")
+
     # Komponenten erstellen
     app_state, state, telegram, scheduler, engine, controller = build_components(
-        config, config_path
+        config, config_path, lamp_monitor=lamp_monitor, lamp_config=lamp_cfg
     )
 
     # Signal-Handler für sauberes Beenden (CTRL+C, Windows-Shutdown)
@@ -434,17 +456,12 @@ def main():
     # Hintergrund-Updater starten (prüft alle 30 Sek. auf neue Commits)
     start_background_updater(app_state, notify_fn=telegram.send_update_installed)
 
-    # Lampen-Monitor starten (täglich um konfigurierte Zeit, unabhängig vom Reboot)
-    lamp_monitor = None
-    try:
-        lamp_cfg = LampConfig(config_path)
-        if lamp_cfg.enabled and lamp_cfg.projectors:
-            lamp_monitor = LampMonitor(lamp_cfg)
-            lamp_monitor.start()
-        else:
-            logger.info("Lampen-Monitor deaktiviert oder keine Projektoren konfiguriert.")
-    except Exception as e:
-        logger.warning(f"Lampen-Monitor konnte nicht gestartet werden: {e}")
+    # Lampen-Monitor starten
+    if lamp_monitor:
+        lamp_monitor.start()
+        logger.info("Lampen-Monitor gestartet.")
+    else:
+        logger.info("Lampen-Monitor deaktiviert oder keine Projektoren konfiguriert.")
 
     # Hauptschleife
     try:
