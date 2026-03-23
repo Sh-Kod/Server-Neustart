@@ -162,11 +162,23 @@ class RebootEngine:
         """Startet Playwright, öffnet Browser, ruft Handler auf."""
         try:
             with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=self._config.headless)
+                browser = pw.chromium.launch(
+                    headless=self._config.headless,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
                 context = browser.new_context(
                     ignore_https_errors=True,  # Self-signed Certs auf Kino-Servern
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
                 )
                 page = context.new_page()
+                # navigator.webdriver entfernen damit IMS3000 keinen Automation-Browser erkennt
+                page.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
                 page.set_default_timeout(30_000)
 
                 try:
