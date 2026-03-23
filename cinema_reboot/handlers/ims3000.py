@@ -281,22 +281,40 @@ class IMS3000Handler(BaseHandler):
 
         # ── ROTE GRENZE: nativen confirm()-Dialog abfangen ───────────────────
         # IMS3000 nutzt window.confirm() nach Reboot-Klick.
-        # expect_dialog() fängt ihn korrekt ab (page.on() hat Timing-Probleme in sync-Modus).
-        try:
-            with page.expect_dialog(timeout=8_000) as dialog_info:
-                page.locator(self.SEL_DIALOG_REBOOT).click()
-                self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
+        # WICHTIG: Im Handler NUR dismiss()/accept() aufrufen – keine page-Operationen!
+        dialog_result: list[tuple[str, str]] = []  # (typ, nachricht)
 
-            dialog = dialog_info.value
+        def _on_dialog(dialog) -> None:
             msg = dialog.message
             self.logger.info(f"[{self.cinema_name}] IMS3000 nativer Dialog: '{msg}'")
+            try:
+                if "Playback is currently running" in msg:
+                    dialog_result.append(("playback", msg))
+                    dialog.dismiss()
+                elif "Ingest is currently running" in msg:
+                    dialog_result.append(("ingest", msg))
+                    dialog.dismiss()
+                else:
+                    dialog_result.append(("accept", msg))
+                    dialog.accept()
+            except Exception as e:
+                self.logger.warning(f"[{self.cinema_name}] Dialog-Fehler (ignoriert): {e}")
 
-            if "Playback is currently running" in msg:
+        page.on("dialog", _on_dialog)
+
+        # ✅ NUR "Reboot" klicken → löst nativen confirm()-Dialog aus
+        page.locator(self.SEL_DIALOG_REBOOT).click()
+        self.logger.info(f"[{self.cinema_name}] IMS3000 'Reboot' geklickt.")
+
+        # Kurz warten bis Dialog-Handler ausgelöst wurde
+        time.sleep(2)
+
+        # Dialog-Ergebnis auswerten
+        if dialog_result:
+            dtype, msg = dialog_result[0]
+            if dtype == "playback":
                 self.logger.critical(
-                    f"[{self.cinema_name}] ⛔ PLAYBACK-Dialog → Abbrechen! KEIN Reboot.")
-                dialog.dismiss()
-                # Power-Dialog auch schließen
-                time.sleep(0.5)
+                    f"[{self.cinema_name}] ⛔ PLAYBACK-Dialog erkannt → KEIN Reboot.")
                 if page.locator(self.SEL_DIALOG_CLOSE).count() > 0:
                     page.locator(self.SEL_DIALOG_CLOSE).click()
                     self.logger.info(f"[{self.cinema_name}] Power-Dialog geschlossen.")
@@ -304,12 +322,9 @@ class IMS3000Handler(BaseHandler):
                     result=RebootResult.BLOCKED_BY_PLAYBACK,
                     message="IMS3000 Playback läuft – Reboot abgebrochen.",
                 )
-            elif "Ingest is currently running" in msg:
+            elif dtype == "ingest":
                 self.logger.critical(
-                    f"[{self.cinema_name}] ⛔ INGEST-Dialog → Abbrechen! KEIN Reboot.")
-                dialog.dismiss()
-                # Power-Dialog auch schließen
-                time.sleep(0.5)
+                    f"[{self.cinema_name}] ⛔ INGEST-Dialog erkannt → KEIN Reboot.")
                 if page.locator(self.SEL_DIALOG_CLOSE).count() > 0:
                     page.locator(self.SEL_DIALOG_CLOSE).click()
                     self.logger.info(f"[{self.cinema_name}] Power-Dialog geschlossen.")
@@ -318,17 +333,10 @@ class IMS3000Handler(BaseHandler):
                     message="IMS3000 Ingest läuft – Reboot abgebrochen.",
                 )
             else:
-                # Einfache Bestätigung ohne laufenden Prozess → Reboot akzeptieren
                 self.logger.info(
                     f"[{self.cinema_name}] Reboot-Bestätigung akzeptiert – Reboot läuft.")
-                dialog.accept()
 
-        except PlaywrightTimeout:
-            # Kein Dialog → IMS3000 startet Reboot direkt ohne Bestätigung
-            self.logger.info(
-                f"[{self.cinema_name}] Kein Bestätigungs-Dialog → IMS3000 Reboot direkt gestartet.")
-
-        # Kein blockierender Dialog → Countdown abwarten (nichts klicken)
+        # Kein blockierender Dialog → Countdown abwarten
         self.logger.info(f"[{self.cinema_name}] Warte auf Reboot-Countdown...")
         countdown_found = self._wait_for_countdown(page)
         if not countdown_found:
