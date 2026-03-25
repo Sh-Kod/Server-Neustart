@@ -546,9 +546,10 @@ class LampTelegramController(TelegramController):
     def _health_menu_text(self) -> str:
         return (
             "💚 *Projektor-Gesundheit*\n\n"
-            "1 – Übersicht (alle Projektoren)\n"
+            "1 – Übersicht (letzter bekannter Status)\n"
             "2 – Sofort alle prüfen\n"
             "3 – Einzelner Projektor-Check\n\n"
+            "💚 OK  🔵 Meldung  🟡 Warnung  🔴 Fehler  ⬛ Offline\n\n"
             "_0 = Zurück zum Hauptmenü_"
         )
 
@@ -604,18 +605,23 @@ class LampTelegramController(TelegramController):
             err_msg  = entry.get("error_msg", "")
 
             icon = {
-                HealthColor.GREEN:  "💚",
-                HealthColor.BLUE:   "🔵",
-                HealthColor.YELLOW: "🟡",
-                HealthColor.RED:    "🔴",
+                HealthColor.GREEN:   "💚",
+                HealthColor.BLUE:    "🔵",
+                HealthColor.YELLOW:  "🟡",
+                HealthColor.RED:     "🔴",
+                HealthColor.OFFLINE: "⬛",
             }.get(color, "❓")
 
             # Zeitstempel kürzen (nur HH:MM)
             checked_short = checked[11:16] if len(checked) > 11 else checked
             changed_short = changed[11:16] if len(changed) > 11 else changed
 
-            if color == HealthColor.RED and not entry.get("reachable"):
-                detail = f"nicht erreichbar – {err_msg}" if err_msg else "nicht erreichbar"
+            if color == HealthColor.OFFLINE:
+                detail = "kein Strom / nicht erreichbar"
+            elif color == HealthColor.RED:
+                detail = f"F:{err} W:{warn} M:{notif}"
+                if err_msg:
+                    detail += f" – {err_msg}"
             else:
                 detail = f"M:{notif} W:{warn} F:{err}"
 
@@ -641,14 +647,17 @@ class LampTelegramController(TelegramController):
         lines = ["💚 *Projektor-Gesundheit – Sofortprüfung*\n"]
         for r in results:
             icon = {
-                HealthColor.GREEN:  "💚",
-                HealthColor.BLUE:   "🔵",
-                HealthColor.YELLOW: "🟡",
-                HealthColor.RED:    "🔴",
+                HealthColor.GREEN:   "💚",
+                HealthColor.BLUE:    "🔵",
+                HealthColor.YELLOW:  "🟡",
+                HealthColor.RED:     "🔴",
+                HealthColor.OFFLINE: "⬛",
             }.get(r.color, "❓")
 
-            if not r.reachable:
-                detail = f"nicht erreichbar – {r.error_msg}" if r.error_msg else "nicht erreichbar"
+            if r.color == HealthColor.OFFLINE:
+                detail = "kein Strom / nicht erreichbar"
+            elif r.color == HealthColor.RED:
+                detail = f"Fehler: {r.errors} | Warnungen: {r.warnings} | Meldungen: {r.notifications}"
             else:
                 detail = f"Meldungen: {r.notifications} | Warnungen: {r.warnings} | Fehler: {r.errors}"
             lines.append(f"{icon} *{r.cinema_name}* – {detail}")

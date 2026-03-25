@@ -11,10 +11,11 @@ Status-Abfrage (Cmd \x81\x04\x17):
   Antwort: \xfe \x00 \x81 \x04 \x17 [notif 4B][warn 4B][error 4B] [chksum] \xff
 
 Farb-Zustände:
-  GREEN  – verbunden, keine Meldungen
-  BLUE   – Benachrichtigungen (notification_count > 0, kein Fehler/Warnung)
-  YELLOW – Warnungen (warning_count > 0, kein Fehler)
-  RED    – NICHT erreichbar ODER error_count > 0 → sofortiger Telegram-Alarm!
+  GREEN   – verbunden, keine Meldungen
+  BLUE    – Benachrichtigungen (notification_count > 0, kein Fehler/Warnung)
+  YELLOW  – Warnungen (warning_count > 0, kein Fehler)
+  RED     – verbunden, error_count > 0 → sofortiger Telegram-Alarm!
+  OFFLINE – TCP nicht erreichbar (kein Strom oder Netzfehler) → kein Alarm wenn vorher auch offline
 """
 import logging
 import socket
@@ -25,10 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 class HealthColor:
-    GREEN  = "green"
-    BLUE   = "blue"
-    YELLOW = "yellow"
-    RED    = "red"
+    GREEN   = "green"
+    BLUE    = "blue"
+    YELLOW  = "yellow"
+    RED     = "red"
+    OFFLINE = "offline"   # Kein Strom / nicht erreichbar – kein echter Fehler
 
 
 # Barco Protokoll-Konstanten
@@ -144,7 +146,7 @@ def check_health(
                 )
                 return HealthResult(
                     cinema_id=cinema_id, cinema_name=cinema_name,
-                    reachable=True, color=HealthColor.RED,
+                    reachable=False, color=HealthColor.OFFLINE,
                     error_msg="ACK nicht empfangen",
                     raw_response=ack.hex() if ack else "",
                 )
@@ -153,7 +155,7 @@ def check_health(
                 logger.warning(f"[GESUNDHEIT] {cinema_name}: Ungültiges ACK: {ack.hex()}")
                 return HealthResult(
                     cinema_id=cinema_id, cinema_name=cinema_name,
-                    reachable=True, color=HealthColor.RED,
+                    reachable=False, color=HealthColor.OFFLINE,
                     error_msg=f"Ungültiges ACK: {ack.hex()}",
                     raw_response=ack.hex(),
                 )
@@ -163,21 +165,21 @@ def check_health(
             logger.debug(f"[GESUNDHEIT] {cinema_name}: Antwort: {response.hex() if response else 'leer'}")
 
     except socket.timeout:
-        logger.warning(
-            f"[GESUNDHEIT] {cinema_name}: Timeout ({projector_ip}:{projector_port})"
+        logger.info(
+            f"[GESUNDHEIT] {cinema_name}: ⬛ OFFLINE (Timeout – kein Strom oder Netzfehler)"
         )
         return HealthResult(
             cinema_id=cinema_id, cinema_name=cinema_name,
-            reachable=False, color=HealthColor.RED,
+            reachable=False, color=HealthColor.OFFLINE,
             error_msg="Timeout – Projektor nicht erreichbar",
         )
     except OSError as e:
-        logger.warning(
-            f"[GESUNDHEIT] {cinema_name}: Verbindungsfehler: {e}"
+        logger.info(
+            f"[GESUNDHEIT] {cinema_name}: ⬛ OFFLINE ({e})"
         )
         return HealthResult(
             cinema_id=cinema_id, cinema_name=cinema_name,
-            reachable=False, color=HealthColor.RED,
+            reachable=False, color=HealthColor.OFFLINE,
             error_msg=f"Verbindungsfehler: {e}",
         )
 
@@ -185,18 +187,19 @@ def check_health(
         logger.warning(f"[GESUNDHEIT] {cinema_name}: Keine Antwort empfangen")
         return HealthResult(
             cinema_id=cinema_id, cinema_name=cinema_name,
-            reachable=True, color=HealthColor.RED,
+            reachable=False, color=HealthColor.OFFLINE,
             error_msg="Keine Antwort auf Status-Abfrage",
         )
 
     counts = _parse_counts(response)
     if counts is None:
+        # Verbunden, aber Antwort nicht lesbar → als OFFLINE werten (Protokollfehler)
         logger.warning(
             f"[GESUNDHEIT] {cinema_name}: Antwort nicht auswertbar – {response.hex()}"
         )
         return HealthResult(
             cinema_id=cinema_id, cinema_name=cinema_name,
-            reachable=True, color=HealthColor.RED,
+            reachable=True, color=HealthColor.OFFLINE,
             error_msg=f"Antwort nicht auswertbar: {response.hex()}",
             raw_response=response.hex(),
         )

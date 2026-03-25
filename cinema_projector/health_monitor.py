@@ -151,8 +151,22 @@ class HealthMonitor:
         if not self._config.telegram_enabled:
             return
 
-        # Sofortiger Alarm bei Wechsel ZU ROT
+        # ── Alarm-Logik ────────────────────────────────────────────────────────
+        #
+        # 🔴 ROT:     Projektor verbunden, aber error_count > 0 → IMMER Alarm
+        # ⬛ OFFLINE: TCP nicht erreichbar (kein Strom / Netzfehler)
+        #   - vorher unknown/OFFLINE → kein Alarm (Projektor war nicht bekannt)
+        #   - vorher GREEN/BLUE/YELLOW → Alarm! (Projektor war an, plötzlich weg)
+        #   - vorher RED → kein extra Alarm (war schon defekt)
+        # 💚🔵🟡 Entwarnung: nur wenn vorher ROT oder OFFLINE (war vorher bekannt an)
+
+        _was_known_on = prev_color in (
+            HealthColor.GREEN, HealthColor.BLUE, HealthColor.YELLOW
+        )
+        _was_problem = prev_color in (HealthColor.RED, HealthColor.OFFLINE)
+
         if result.color == HealthColor.RED:
+            # Immer Alarm wenn Fehler vorhanden (egal welcher Vorzustand)
             msg = _build_red_alert(result, prev_color)
             _send_telegram(
                 self._config.telegram_bot_token,
@@ -160,9 +174,19 @@ class HealthMonitor:
                 msg,
             )
 
-        # Entwarnung bei Rückkehr aus ROT
-        elif prev_color == HealthColor.RED:
-            msg = _build_recovery_msg(result)
+        elif result.color == HealthColor.OFFLINE and _was_known_on:
+            # Projektor war an (grün/blau/gelb), jetzt plötzlich offline → Alarm
+            msg = _build_offline_alert(result, prev_color)
+            _send_telegram(
+                self._config.telegram_bot_token,
+                self._config.telegram_chat_id,
+                msg,
+            )
+
+        elif result.color in (HealthColor.GREEN, HealthColor.BLUE, HealthColor.YELLOW) \
+                and _was_problem:
+            # Projektor war defekt/offline, jetzt wieder normal → Entwarnung
+            msg = _build_recovery_msg(result, prev_color)
             _send_telegram(
                 self._config.telegram_bot_token,
                 self._config.telegram_chat_id,
@@ -174,10 +198,11 @@ class HealthMonitor:
 
 def _color_icon(color: str) -> str:
     return {
-        HealthColor.GREEN:  "💚",
-        HealthColor.BLUE:   "🔵",
-        HealthColor.YELLOW: "🟡",
-        HealthColor.RED:    "🔴",
+        HealthColor.GREEN:   "💚",
+        HealthColor.BLUE:    "🔵",
+        HealthColor.YELLOW:  "🟡",
+        HealthColor.RED:     "🔴",
+        HealthColor.OFFLINE: "⬛",
     }.get(color, "❓")
 
 
@@ -185,35 +210,48 @@ def _build_red_alert(result: HealthResult, prev_color: str) -> str:
     now_str   = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     prev_icon = _color_icon(prev_color)
 
-    if not result.reachable:
-        detail = "❌ Projektor <b>nicht erreichbar</b>"
-        if result.error_msg:
-            detail += f"\n<i>{result.error_msg}</i>"
-    else:
-        detail = (
-            f"Fehler: <b>{result.errors}</b> | "
-            f"Warnungen: {result.warnings} | "
-            f"Meldungen: {result.notifications}"
-        )
-        if result.error_msg:
-            detail += f"\n<i>{result.error_msg}</i>"
+    detail = (
+        f"Fehler: <b>{result.errors}</b> | "
+        f"Warnungen: {result.warnings} | "
+        f"Meldungen: {result.notifications}"
+    )
+    if result.error_msg:
+        detail += f"\n<i>{result.error_msg}</i>"
 
     return (
         f"🔴 <b>[GESUNDHEIT] PROJEKTOR-ALARM</b> – {result.cinema_name}\n"
         f"<i>{now_str}</i>\n\n"
-        f"{prev_icon} ➜ 🔴  Zustandswechsel!\n"
+        f"{prev_icon} ➜ 🔴  Fehler erkannt!\n"
         f"{detail}"
     )
 
 
-def _build_recovery_msg(result: HealthResult) -> str:
+def _build_offline_alert(result: HealthResult, prev_color: str) -> str:
+    """Alarm: Projektor war eingeschaltet und ist plötzlich nicht mehr erreichbar."""
+    now_str   = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    prev_icon = _color_icon(prev_color)
+
+    detail = "Projektor <b>nicht mehr erreichbar</b>"
+    if result.error_msg:
+        detail += f"\n<i>{result.error_msg}</i>"
+
+    return (
+        f"⬛ <b>[GESUNDHEIT] PROJEKTOR WEG</b> – {result.cinema_name}\n"
+        f"<i>{now_str}</i>\n\n"
+        f"{prev_icon} ➜ ⬛  War an, jetzt offline!\n"
+        f"{detail}"
+    )
+
+
+def _build_recovery_msg(result: HealthResult, prev_color: str) -> str:
     now_str    = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     color_icon = _color_icon(result.color)
+    prev_icon  = _color_icon(prev_color)
 
     return (
         f"{color_icon} <b>[GESUNDHEIT] Projektor wieder OK</b> – {result.cinema_name}\n"
         f"<i>{now_str}</i>\n\n"
-        f"🔴 ➜ {color_icon}  Wiederhergestellt\n"
+        f"{prev_icon} ➜ {color_icon}  Wiederhergestellt\n"
         f"Meldungen: {result.notifications} | "
         f"Warnungen: {result.warnings} | "
         f"Fehler: {result.errors}"
