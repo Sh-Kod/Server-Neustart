@@ -573,7 +573,8 @@ class LampTelegramController(TelegramController):
             "2 – Sofort alle prüfen\n"
             "3 – Einzelner Projektor-Check\n"
             "4 – 🌡️ Temperatur-Schwellwert ändern\n"
-            "5 – 🎛️ Projektor steuern\n\n"
+            "5 – 🎛️ Projektor steuern\n"
+            "6 – 🌡️ Temperatur-Übersicht\n\n"
             "💚 OK  🔵 Meldung  🟡 Warnung  🔴 Fehler  ⬛ Offline\n\n"
             "_0 = Zurück zum Hauptmenü_"
         )
@@ -605,8 +606,11 @@ class LampTelegramController(TelegramController):
             self._open_temp_menu(chat_id)
         elif t == "5":
             self._open_ctrl_menu(chat_id)
+        elif t == "6":
+            self._ld_reset(chat_id)
+            self._send(chat_id, self._build_temp_overview())
         else:
-            self._send(chat_id, "Bitte 1–5 eingeben.\n\n" + self._health_menu_text())
+            self._send(chat_id, "Bitte 1–6 eingeben.\n\n" + self._health_menu_text())
 
     def _build_health_overview(self) -> str:
         """Übersicht aller Projektor-Zustände aus dem letzten bekannten State."""
@@ -658,14 +662,22 @@ class LampTelegramController(TelegramController):
             if color == HealthColor.OFFLINE:
                 status_line = f"{icon} *{name}* – stromlos / offline"
             elif color == HealthColor.RED:
+                n_issues = len(details) if details else err + warn
                 status_line = (
                     f"{icon} *{name}*{lamp_str}{temp_str} – "
-                    f"F:{err} W:{warn} M:{notif}"
+                    f"{n_issues} Problem{'e' if n_issues != 1 else ''}"
                 )
-            elif color in (HealthColor.YELLOW, HealthColor.BLUE):
+            elif color == HealthColor.YELLOW:
+                n_warn = sum(1 for d in details if d.startswith("🟡")) if details else warn
                 status_line = (
                     f"{icon} *{name}*{lamp_str}{temp_str} – "
-                    f"M:{notif} W:{warn}"
+                    f"{n_warn} Warnung{'en' if n_warn != 1 else ''}"
+                )
+            elif color == HealthColor.BLUE:
+                n_notif = len(details) if details else (bin(notif).count('1') if notif else 0)
+                status_line = (
+                    f"{icon} *{name}*{lamp_str}{temp_str}"
+                    + (f" – {n_notif} Meldung{'en' if n_notif != 1 else ''}" if n_notif else "")
                 )
             else:
                 status_line = f"{icon} *{name}*{lamp_str}{temp_str}"
@@ -679,6 +691,55 @@ class LampTelegramController(TelegramController):
 
         if not self._lamp_cfg.projectors:
             lines.append("_Keine Projektoren konfiguriert._")
+
+        return "\n".join(lines)
+
+    def _build_temp_overview(self) -> str:
+        """Zeigt Temperaturen aller Projektoren aus dem letzten bekannten State."""
+        state    = self._health.get_state()
+        all_data = state.get_all()
+        thresholds = self._health.get_thresholds() if hasattr(self._health, "get_thresholds") else None
+
+        lines = ["🌡️ *Temperatur-Übersicht* (letzter bekannter Wert)\n"]
+        any_temp = False
+        for proj in self._lamp_cfg.projectors:
+            cid   = proj["id"]
+            name  = proj["name"]
+            entry = all_data.get(cid)
+            temp  = entry.get("temperature_c", -1.0) if entry else -1.0
+            thr   = thresholds.get(cid) if thresholds else 70
+
+            if temp and temp > 0:
+                any_temp = True
+                # Warnsymbol wenn nahe oder über Schwellwert
+                if temp >= thr:
+                    sym = "🔴"
+                elif temp >= thr - 5:
+                    sym = "🟡"
+                else:
+                    sym = "🟢"
+                lines.append(f"{sym} *{name}*: {temp:.1f}°C  _(Schwellwert: {thr}°C)_")
+            else:
+                checked = (entry or {}).get("color", "?")
+                if checked == "offline":
+                    lines.append(f"⬛ *{name}*: offline")
+                else:
+                    lines.append(f"❓ *{name}*: keine Temp.-Daten")
+
+        if not any_temp:
+            lines.append(
+                "\n_Hinweis: Für Barco-Projektoren muss `snmp_temp_oid` in config.yaml "
+                "konfiguriert sein. Christie-Projektoren liefern Temperatur automatisch._"
+            )
+
+        checked_str = ""
+        for proj in self._lamp_cfg.projectors:
+            entry = all_data.get(proj["id"])
+            if entry and entry.get("last_checked"):
+                checked_str = entry["last_checked"][11:16]
+                break
+        if checked_str:
+            lines.append(f"\n_Stand: {checked_str} – Option 2 für Sofortprüfung_")
 
         return "\n".join(lines)
 
@@ -712,17 +773,27 @@ class LampTelegramController(TelegramController):
             if r.color == HealthColor.OFFLINE:
                 lines.append(f"{icon} *{r.cinema_name}* – stromlos / offline")
             elif r.color == HealthColor.RED:
+                n_issues = len(r.error_details) if r.error_details else r.errors + r.warnings
                 lines.append(
                     f"{icon} *{r.cinema_name}*{lamp_str}{temp_str} – "
-                    f"F:{r.errors} W:{r.warnings} M:{r.notifications}"
+                    f"{n_issues} Problem{'e' if n_issues != 1 else ''}"
                 )
                 for d in r.error_details[:3]:
                     lines.append(f"   • {d}")
-            else:
+            elif r.color == HealthColor.YELLOW:
+                n_warn = sum(1 for d in r.error_details if d.startswith("🟡")) if r.error_details else r.warnings
                 lines.append(
                     f"{icon} *{r.cinema_name}*{lamp_str}{temp_str} – "
-                    f"M:{r.notifications} W:{r.warnings}"
+                    f"{n_warn} Warnung{'en' if n_warn != 1 else ''}"
                 )
+            elif r.color == HealthColor.BLUE:
+                n_notif = len(r.error_details) if r.error_details else (bin(r.notifications).count('1') if r.notifications else 0)
+                lines.append(
+                    f"{icon} *{r.cinema_name}*{lamp_str}{temp_str}"
+                    + (f" – {n_notif} Meldung{'en' if n_notif != 1 else ''}" if n_notif else "")
+                )
+            else:
+                lines.append(f"{icon} *{r.cinema_name}*{lamp_str}{temp_str}")
 
         return "\n".join(lines)
 

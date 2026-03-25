@@ -138,24 +138,44 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
         name = item.findtext("name", "?")
         val  = item.findtext("value", "")
 
-        # Temperaturwert extrahieren (alle Items mit "temp" im Namen)
-        if "temp" in name.lower():
+        # Temperaturwert extrahieren
+        # Trifft auf: *temp*, *Tmp* (z.B. TmpIntakeTemp, LasLaserTemp, TmpChassis)
+        name_l = name.lower()
+        if "temp" in name_l or "tmp" in name_l:
             try:
                 # Wert kann "42.5" oder "42.5 C" oder "42.5°C" sein
-                temp_raw = val.split()[0].replace("°", "").replace("C", "").strip()
+                temp_raw = val.split()[0].replace("°", "").replace(",", ".").replace("C", "").strip()
                 parsed = float(temp_raw)
-                if temperature_c < 0 or parsed > temperature_c:
-                    temperature_c = parsed  # höchste gemessene Temperatur merken
+                if 0 < parsed < 200:   # Plausibilitätsprüfung (°C)
+                    if temperature_c < 0 or parsed > temperature_c:
+                        temperature_c = parsed  # höchste gemessene Temperatur merken
             except (ValueError, IndexError):
                 pass
 
-        # Lampenstatus aus StatusItems extrahieren
-        if lamp_on is None and ("laser" in name.lower() or "lamp" in name.lower()):
+        # Lampenstatus aus StatusItems extrahieren (Christie Laser-Projektor)
+        # Item-Namen: LasLaserEnable, LasLaserFiring, LasLaserPower, LasLaserReady, ...
+        is_lamp_item = (
+            "laser" in name_l or "lamp" in name_l
+            or name_l.startswith("las")   # Christie Laser-Prefix (LasXxx)
+        )
+        if lamp_on is None and is_lamp_item:
             val_l = val.lower()
-            if val_l in ("on", "1", "true", "running", "active"):
+            # Christie-typische "AN"-Werte
+            _ON_VALS  = ("on", "1", "true", "running", "active", "enabled",
+                         "firing", "ready", "engaged", "lit")
+            # Christie-typische "AUS"-Werte
+            _OFF_VALS = ("off", "0", "false", "standby", "idle", "disabled",
+                         "not ready", "off/standby")
+            if any(x == val_l for x in _ON_VALS) or any(val_l.startswith(x) for x in _ON_VALS):
                 lamp_on = True
-            elif val_l in ("off", "0", "false", "standby", "idle"):
+            elif any(x == val_l for x in _OFF_VALS) or any(val_l.startswith(x) for x in _OFF_VALS):
                 lamp_on = False
+            else:
+                # Numerischer Wert: > 0 → AN (z.B. Laserleistung in %)
+                try:
+                    lamp_on = float(val_l) > 0
+                except ValueError:
+                    pass
 
         if alarm >= 2:
             errors += 1
