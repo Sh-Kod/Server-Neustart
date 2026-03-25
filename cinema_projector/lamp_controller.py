@@ -49,6 +49,15 @@ _LS_PROJ_DEL_CONFIRM = "proj_del_confirm"
 _HS_MENU            = "health_menu"
 _HS_SINGLE_SELECT   = "health_single_select"
 
+# Dialog-Zustände (Temperatur-Schwellwert)
+_HS_TEMP_SELECT     = "health_temp_select"
+_HS_TEMP_INPUT      = "health_temp_input"
+
+# Dialog-Zustände (Projektor-Steuerung)
+_HS_CTRL_SELECT     = "health_ctrl_select"
+_HS_CTRL_ACTION     = "health_ctrl_action"
+_HS_CTRL_CONFIRM    = "health_ctrl_confirm"
+
 CANCEL_WORDS = {"0", "/abbrechen", "/cancel", "/stop", "/exit"}
 
 
@@ -193,6 +202,11 @@ class LampTelegramController(TelegramController):
             _LS_PROJ_DEL_CONFIRM:self._dlg_proj_del_confirm,
             _HS_MENU:            self._dlg_health_menu,
             _HS_SINGLE_SELECT:   self._dlg_health_single_select,
+            _HS_TEMP_SELECT:     self._dlg_temp_select,
+            _HS_TEMP_INPUT:      self._dlg_temp_input,
+            _HS_CTRL_SELECT:     self._dlg_ctrl_select,
+            _HS_CTRL_ACTION:     self._dlg_ctrl_action,
+            _HS_CTRL_CONFIRM:    self._dlg_ctrl_confirm,
         }
         handler = dispatch.get(state)
         if handler:
@@ -548,7 +562,9 @@ class LampTelegramController(TelegramController):
             "💚 *Projektor-Gesundheit*\n\n"
             "1 – Übersicht (letzter bekannter Status)\n"
             "2 – Sofort alle prüfen\n"
-            "3 – Einzelner Projektor-Check\n\n"
+            "3 – Einzelner Projektor-Check\n"
+            "4 – 🌡️ Temperatur-Schwellwert ändern\n"
+            "5 – 🎛️ Projektor steuern\n\n"
             "💚 OK  🔵 Meldung  🟡 Warnung  🔴 Fehler  ⬛ Offline\n\n"
             "_0 = Zurück zum Hauptmenü_"
         )
@@ -576,8 +592,12 @@ class LampTelegramController(TelegramController):
             lines.append("\n_(0 = Abbrechen)_")
             self._ld_next(chat_id, _HS_SINGLE_SELECT)
             self._send(chat_id, "\n".join(lines))
+        elif t == "4":
+            self._open_temp_menu(chat_id)
+        elif t == "5":
+            self._open_ctrl_menu(chat_id)
         else:
-            self._send(chat_id, "Bitte 1–3 eingeben.\n\n" + self._health_menu_text())
+            self._send(chat_id, "Bitte 1–5 eingeben.\n\n" + self._health_menu_text())
 
     def _build_health_overview(self) -> str:
         """Übersicht aller Projektor-Zustände aus dem letzten bekannten State."""
@@ -688,6 +708,193 @@ class LampTelegramController(TelegramController):
             self._send(chat_id, self._format_health_results([result]))
         except Exception as e:
             self._send(chat_id, f"❌ Fehler: {e}")
+
+    # ── Temperatur-Schwellwert (Gesundheit Option 4) ──────────────────────────
+
+    def _open_temp_menu(self, chat_id: str) -> None:
+        if self._health is None:
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Kein Gesundheits-Monitor aktiv.")
+            return
+        projs = self._lamp_cfg.projectors
+        if not projs:
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Keine Projektoren konfiguriert.")
+            return
+        thresholds = self._health.get_thresholds()
+        lines = ["🌡️ *Temperatur-Schwellwert ändern*\n", "Kino wählen:\n"]
+        for i, p in enumerate(projs, 1):
+            current = thresholds.get(p["id"])
+            lines.append(f"{i}. {p['name']} – aktuell: {current:.0f}°C")
+        lines.append("\n_(0 = Abbrechen)_")
+        self._ld_set(chat_id, _HS_TEMP_SELECT)
+        self._send(chat_id, "\n".join(lines))
+
+    def _dlg_temp_select(self, chat_id: str, text: str) -> None:
+        projs = self._lamp_cfg.projectors
+        try:
+            idx = int(text.strip()) - 1
+            if idx < 0 or idx >= len(projs):
+                raise ValueError
+        except ValueError:
+            self._send(chat_id, "❌ Ungültige Nummer.")
+            return
+        proj = projs[idx]
+        current = self._health.get_thresholds().get(proj["id"])
+        self._ld_update_data(chat_id, "cinema_id",   proj["id"])
+        self._ld_update_data(chat_id, "cinema_name", proj["name"])
+        self._ld_next(chat_id, _HS_TEMP_INPUT)
+        self._send(chat_id,
+            f"🌡️ *{proj['name']}*\n"
+            f"Aktueller Schwellwert: `{current:.0f}°C`\n\n"
+            f"Neuen Schwellwert eingeben (z.B. `70`):\n"
+            f"_(Empfehlung: 65–75°C | 0 = Abbrechen)_")
+
+    def _dlg_temp_input(self, chat_id: str, text: str) -> None:
+        try:
+            val = float(text.strip().replace(",", "."))
+            if val < 20 or val > 120:
+                raise ValueError
+        except ValueError:
+            self._send(chat_id, "❌ Ungültiger Wert. Bitte Zahl zwischen 20 und 120 eingeben.")
+            return
+        cinema_id   = self._ld_get(chat_id, "cinema_id")
+        cinema_name = self._ld_get(chat_id, "cinema_name")
+        self._health.get_thresholds().set(cinema_id, val)
+        self._ld_reset(chat_id)
+        self._send(chat_id, f"✅ *{cinema_name}*: Temperatur-Schwellwert auf `{val:.0f}°C` gesetzt.")
+
+    # ── Projektor-Steuerung (Gesundheit Option 5) ─────────────────────────────
+
+    def _open_ctrl_menu(self, chat_id: str) -> None:
+        if self._health is None:
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Kein Gesundheits-Monitor aktiv.")
+            return
+        projs = self._lamp_cfg.projectors
+        if not projs:
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Keine Projektoren konfiguriert.")
+            return
+        lines = ["🎛️ *Projektor steuern*\n", "Welchen Kinosaal steuern?\n"]
+        for i, p in enumerate(projs, 1):
+            ptype = p.get("projector_type", "barco").upper()
+            lines.append(f"{i}. {p['name']} ({ptype})")
+        lines.append("\n⚠️ _Jede Aktion erfordert Bestätigung!_")
+        lines.append("_(0 = Abbrechen)_")
+        self._ld_set(chat_id, _HS_CTRL_SELECT)
+        self._send(chat_id, "\n".join(lines))
+
+    def _dlg_ctrl_select(self, chat_id: str, text: str) -> None:
+        projs = self._lamp_cfg.projectors
+        try:
+            idx = int(text.strip()) - 1
+            if idx < 0 or idx >= len(projs):
+                raise ValueError
+        except ValueError:
+            self._send(chat_id, "❌ Ungültige Nummer.")
+            return
+        proj = projs[idx]
+        ptype = proj.get("projector_type", "barco").lower()
+        lamp_label = "Laser" if ptype == "christie" else "Lampe"
+        self._ld_update_data(chat_id, "proj_id",   proj["id"])
+        self._ld_update_data(chat_id, "proj_name", proj["name"])
+        self._ld_update_data(chat_id, "proj_ip",   proj["projector_ip"])
+        self._ld_update_data(chat_id, "proj_port", proj.get("projector_port", 43728))
+        self._ld_update_data(chat_id, "proj_type", ptype)
+        self._ld_next(chat_id, _HS_CTRL_ACTION)
+        self._send(chat_id,
+            f"🎛️ *{proj['name']}* – Was möchten Sie tun?\n\n"
+            f"1 – 💡 {lamp_label} EIN\n"
+            f"2 – 🌑 {lamp_label} AUS\n"
+            f"3 – 🟢 Douser AUF (Bild freigeben)\n"
+            f"4 – ⛔ Douser ZU (Bild sperren)\n\n"
+            f"_(0 = Abbrechen)_")
+
+    _CTRL_ACTIONS = {
+        "1": ("lamp_on",     "💡 Lampe/Laser EIN"),
+        "2": ("lamp_off",    "🌑 Lampe/Laser AUS"),
+        "3": ("douser_open", "🟢 Douser AUF"),
+        "4": ("douser_close","⛔ Douser ZU"),
+    }
+
+    def _dlg_ctrl_action(self, chat_id: str, text: str) -> None:
+        t = text.strip()
+        if t not in self._CTRL_ACTIONS:
+            self._send(chat_id, "❌ Bitte 1, 2, 3 oder 4 eingeben.")
+            return
+        action, label = self._CTRL_ACTIONS[t]
+        proj_name = self._ld_get(chat_id, "proj_name")
+        self._ld_update_data(chat_id, "action",       action)
+        self._ld_update_data(chat_id, "action_label", label)
+        self._ld_next(chat_id, _HS_CTRL_CONFIRM)
+        self._send(chat_id,
+            f"⚠️ *Bestätigung erforderlich*\n\n"
+            f"Saal: *{proj_name}*\n"
+            f"Aktion: *{label}*\n\n"
+            f"*ja* – Ausführen\n"
+            f"*0* – Abbrechen")
+
+    def _dlg_ctrl_confirm(self, chat_id: str, text: str) -> None:
+        if text.strip().lower() not in ("ja", "yes", "j", "y"):
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Abgebrochen.")
+            return
+        proj_name = self._ld_get(chat_id, "proj_name")
+        proj_ip   = self._ld_get(chat_id, "proj_ip")
+        proj_port = self._ld_get(chat_id, "proj_port")
+        proj_type = self._ld_get(chat_id, "proj_type")
+        action    = self._ld_get(chat_id, "action")
+        label     = self._ld_get(chat_id, "action_label")
+        self._ld_reset(chat_id)
+        self._send(chat_id, f"⏳ Sende Befehl an *{proj_name}*...")
+        threading.Thread(
+            target=self._run_ctrl_command,
+            args=(chat_id, proj_name, proj_ip, proj_port, proj_type, action, label),
+            daemon=True,
+        ).start()
+
+    def _run_ctrl_command(
+        self,
+        chat_id:   str,
+        proj_name: str,
+        proj_ip:   str,
+        proj_port: int,
+        proj_type: str,
+        action:    str,
+        label:     str,
+    ) -> None:
+        from .projector_commander import (
+            cmd_lamp_on, cmd_lamp_off,
+            cmd_douser_open, cmd_douser_close,
+        )
+        cmd_map = {
+            "lamp_on":     cmd_lamp_on,
+            "lamp_off":    cmd_lamp_off,
+            "douser_open": cmd_douser_open,
+            "douser_close":cmd_douser_close,
+        }
+        fn = cmd_map.get(action)
+        if fn is None:
+            self._send(chat_id, f"❌ Unbekannte Aktion: {action}")
+            return
+        try:
+            result = fn(
+                projector_ip=proj_ip,
+                projector_port=int(proj_port),
+                projector_type=proj_type,
+            )
+            if result.success:
+                self._send(chat_id,
+                    f"✅ *{proj_name}* – {label}\n"
+                    f"Befehl erfolgreich gesendet."
+                    + (f"\n`{result.raw_resp}`" if result.raw_resp else ""))
+            else:
+                self._send(chat_id,
+                    f"❌ *{proj_name}* – {label}\n"
+                    f"Fehler: {result.message}")
+        except Exception as e:
+            self._send(chat_id, f"❌ Ausnahmefehler: {e}")
 
     # ── Dialog 5: Status ──────────────────────────────────────────────────────
 

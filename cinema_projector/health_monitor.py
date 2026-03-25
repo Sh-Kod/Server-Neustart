@@ -23,6 +23,7 @@ import requests
 from .health_checker import HealthColor, HealthResult, check_health
 from .health_state import HealthState
 from .lamp_config import LampConfig
+from .temp_thresholds import TempThresholds
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +52,12 @@ class HealthMonitor:
     """
 
     def __init__(self, lamp_config: LampConfig):
-        self._config   = lamp_config
-        self._interval = lamp_config.health_poll_interval_seconds
-        self._state    = HealthState("health_state.json")
+        self._config     = lamp_config
+        self._interval   = lamp_config.health_poll_interval_seconds
+        self._state      = HealthState("health_state.json")
+        self._thresholds = TempThresholds("temp_thresholds.json")
         self._thread: Optional[threading.Thread] = None
-        self._running  = False
+        self._running    = False
 
     def start(self) -> None:
         self._running = True
@@ -90,6 +92,9 @@ class HealthMonitor:
 
     def get_state(self) -> HealthState:
         return self._state
+
+    def get_thresholds(self) -> TempThresholds:
+        return self._thresholds
 
     # ── Interner Loop ──────────────────────────────────────────────────────────
 
@@ -138,7 +143,24 @@ class HealthMonitor:
             warnings=result.warnings,
             errors=result.errors,
             error_msg=result.error_msg,
+            error_details=result.error_details,
+            temperature_c=result.temperature_c,
         )
+
+        # ── Temperatur-Alarm ──────────────────────────────────────────────────
+        if result.reachable and result.temperature_c > 0:
+            threshold = self._thresholds.get(result.cinema_id)
+            if result.temperature_c >= threshold:
+                prev_temp = self._state.get_entry(result.cinema_id).get("temperature_c", -1)
+                # Nur Alarm wenn vorher unter Schwellwert (kein Spam)
+                if prev_temp < threshold or prev_temp < 0:
+                    if self._config.telegram_enabled:
+                        msg = _build_temp_alert(result, threshold)
+                        _send_telegram(
+                            self._config.telegram_bot_token,
+                            self._config.telegram_chat_id,
+                            msg,
+                        )
 
         # Kein Alarm wenn gleicher Zustand
         if result.color == prev_color:
@@ -204,14 +226,35 @@ def _build_red_alert(result: HealthResult, prev_color: str) -> str:
         f"Warnungen: {result.warnings} | "
         f"Meldungen: {result.notifications}"
     )
+    if result.temperature_c > 0:
+        detail += f" | Temp: {result.temperature_c:.1f}°C"
     if result.error_msg:
         detail += f"\n<i>{result.error_msg}</i>"
+
+    # Dekodierte Fehlercodes anhängen (max. 8 Zeilen um Telegram-Nachricht kurz zu halten)
+    if result.error_details:
+        detail += "\n\n<b>Fehleranalyse:</b>"
+        for line in result.error_details[:8]:
+            detail += f"\n• {line}"
+        if len(result.error_details) > 8:
+            detail += f"\n• … (+{len(result.error_details) - 8} weitere)"
 
     return (
         f"🔴 <b>[GESUNDHEIT] PROJEKTOR-ALARM</b> – {result.cinema_name}\n"
         f"<i>{now_str}</i>\n\n"
         f"{prev_icon} ➜ 🔴  Fehler erkannt!\n"
         f"{detail}"
+    )
+
+
+def _build_temp_alert(result: HealthResult, threshold: float) -> str:
+    now_str = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    return (
+        f"🌡️ <b>[TEMPERATUR] ÜBERHITZUNG</b> – {result.cinema_name}\n"
+        f"<i>{now_str}</i>\n\n"
+        f"Temperatur: <b>{result.temperature_c:.1f}°C</b> "
+        f"(Schwellwert: {threshold:.0f}°C)\n"
+        f"<i>Bitte Kühlung und Luftfilter prüfen!</i>"
     )
 
 

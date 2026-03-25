@@ -57,6 +57,8 @@ class HealthState:
         warnings:      int = 0,
         errors:        int = 0,
         error_msg:     str = "",
+        error_details: list = None,
+        temperature_c: float = -1.0,
     ) -> None:
         """Speichert den aktuellen Zustand mit Zeitstempel.
         'last_changed' wird nur aktualisiert, wenn sich die Farbe geändert hat.
@@ -73,6 +75,8 @@ class HealthState:
             "warnings":      warnings,
             "errors":        errors,
             "error_msg":     error_msg,
+            "error_details": error_details or [],
+            "temperature_c": temperature_c,
             "last_checked":  now,
             "last_changed":  now if prev_color != color else prev.get("last_changed", now),
         }

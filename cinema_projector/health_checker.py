@@ -22,6 +22,8 @@ import socket
 import struct
 from dataclasses import dataclass, field
 
+from .error_codes import build_barco_error_details
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +72,8 @@ class HealthResult:
     warnings:      int = 0
     errors:        int = 0
     error_msg:     str = ""
+    error_details: list = field(default_factory=list)  # dekodierte Fehlertexte
+    temperature_c: float = -1.0                        # Temperatur in °C, -1 = unbekannt
     raw_response:  str = field(default="", repr=False)  # für Debugging
 
 
@@ -233,10 +237,13 @@ def check_health(
     else:
         color = HealthColor.GREEN
 
+    error_details = build_barco_error_details(notifications, warnings, errors)
+
     return HealthResult(
         cinema_id=cinema_id, cinema_name=cinema_name,
         reachable=True, color=color,
         notifications=notifications, warnings=warnings, errors=errors,
+        error_details=error_details,
         raw_response=response.hex(),
     )
 

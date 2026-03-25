@@ -125,7 +125,8 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
     errors        = 0
     warnings      = 0
     notifications = 0
-    alarm_items   = []   # für Debugging
+    error_details: list[str] = []
+    temperature_c = -1.0
 
     for item in root.findall("StatusItem"):
         try:
@@ -133,22 +134,33 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
         except ValueError:
             alarm = 0
 
+        name = item.findtext("name", "?")
+        val  = item.findtext("value", "")
+
+        # Temperaturwert extrahieren (alle Items mit "temp" im Namen)
+        if "temp" in name.lower():
+            try:
+                # Wert kann "42.5" oder "42.5 C" oder "42.5°C" sein
+                temp_raw = val.split()[0].replace("°", "").replace("C", "").strip()
+                parsed = float(temp_raw)
+                if temperature_c < 0 or parsed > temperature_c:
+                    temperature_c = parsed  # höchste gemessene Temperatur merken
+            except (ValueError, IndexError):
+                pass
+
         if alarm >= 2:
             errors += 1
-            name = item.findtext("name", "?")
-            val  = item.findtext("value", "")
-            alarm_items.append(f"{name}={val}(alarm={alarm})")
+            error_details.append(f"🔴 {name}: {val} (Fehler)")
         elif alarm == 1:
             warnings += 1
-            name = item.findtext("name", "?")
-            alarm_items.append(f"{name}(warn)")
+            error_details.append(f"🟡 {name}: {val} (Warnung)")
 
-    log_level = logging.INFO if not alarm_items else logging.WARNING
+    log_level = logging.INFO if not error_details else logging.WARNING
     logger.log(
         log_level,
         f"[GESUNDHEIT] Christie {cinema_name}: "
-        f"Fehler={errors} Warnungen={warnings}"
-        + (f" | {', '.join(alarm_items)}" if alarm_items else "")
+        f"Fehler={errors} Warnungen={warnings} Temp={temperature_c:.1f}°C"
+        + (f" | {', '.join(error_details)}" if error_details else "")
     )
 
     if errors > 0:
@@ -164,4 +176,6 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
         notifications=notifications,
         warnings=warnings,
         errors=errors,
+        error_details=error_details,
+        temperature_c=temperature_c,
     )

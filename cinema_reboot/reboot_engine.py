@@ -29,6 +29,84 @@ from .telegram_sender import TelegramSender
 logger = logging.getLogger(__name__)
 
 
+def _read_lamp_on_christie(
+    projector_ip: str,
+    projector_port: int = 5004,
+    timeout: int = 8,
+) -> Optional[bool]:
+    """
+    Liest den Laser-/Lampenstatus eines Christie CineLife+ Projektors via WebSocket.
+
+    Gibt zurück:
+      True  → Laser AN (Vorstellung läuft vermutlich)
+      False → Laser AUS (sicher aus)
+      None  → Verbindungsfehler / Projektor nicht erreichbar
+
+    Sucht in den StatusItems nach Einträgen mit 'laser' oder 'lamp' im Namen
+    und wertet deren alarmstate sowie value-Feld aus.
+    """
+    try:
+        import websocket as _ws
+        import json, xml.etree.ElementTree as ET
+    except ImportError:
+        logger.warning("[LAMPE] Christie: websocket-client nicht installiert.")
+        return None
+
+    ws_url = f"ws://{projector_ip}:{projector_port}/"
+    try:
+        ws = _ws.create_connection(ws_url, timeout=timeout)
+    except Exception as e:
+        logger.info(f"[LAMPE] Christie {projector_ip}: OFFLINE ({e})")
+        return None
+
+    xml_str = None
+    try:
+        ws.settimeout(timeout)
+        for _ in range(20):
+            try:
+                data = json.loads(ws.recv())
+                if data.get("method") == 2011:
+                    props = data.get("result", {}).get("properties", [])
+                    if props:
+                        xml_str = props[0].get("value", "")
+                        break
+            except (json.JSONDecodeError, KeyError):
+                continue
+    except Exception as e:
+        logger.warning(f"[LAMPE] Christie {projector_ip}: Lesefehler – {e}")
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+    if not xml_str:
+        logger.warning(f"[LAMPE] Christie {projector_ip}: Keine StatusItems empfangen.")
+        return None
+
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return None
+
+    for item in root.findall("StatusItem"):
+        name = (item.findtext("name", "") or "").lower()
+        if "laser" not in name and "lamp" not in name:
+            continue
+        val = (item.findtext("value", "") or "").lower()
+        # Typische Christie-Werte: "On", "Off", "1", "0", "true", "false"
+        if val in ("on", "1", "true", "running", "active"):
+            logger.info(f"[LAMPE] Christie {projector_ip}: Laser/Lampe AN ({name}={val})")
+            return True
+        if val in ("off", "0", "false", "standby", "idle"):
+            logger.info(f"[LAMPE] Christie {projector_ip}: Laser/Lampe AUS ({name}={val})")
+            return False
+
+    # StatusItems enthalten keinen Laser-Eintrag → unbekannt
+    logger.info(f"[LAMPE] Christie {projector_ip}: Kein Laser-StatusItem gefunden.")
+    return None
+
+
 class RebootEngine:
     """Führt den Reboot eines einzelnen Kinos durch."""
 
@@ -106,16 +184,24 @@ class RebootEngine:
         logger.info(f"[{cinema_name}] Server erreichbar ✓")
 
         # ── Projektor-Lampenstatus lesen (optional, nur wenn projector_ip konfiguriert) ──
-        projector_ip = cinema.get("projector_ip")
+        # Sicherheitsprüfung: Lampe AN → Vorstellung läuft → Reboot BLOCKIERT
+        # Lampe AUS (bestätigt) → Reboot erlaubt (aber DoreMi-Check folgt noch)
+        # Projektor OFFLINE / nicht lesbar → Lampen-Check übersprungen, DoreMi-Check entscheidet
+        projector_ip   = cinema.get("projector_ip")
+        projector_type = cinema.get("projector_type", "barco").lower()
         if projector_ip:
             projector_port = int(cinema.get("projector_port", 43728))
             logger.info(
-                f"[{cinema_name}] Projektor-Check: Lampenstatus lesen "
-                f"({projector_ip}:{projector_port})..."
+                f"[{cinema_name}] Projektor-Lampenstatus lesen "
+                f"({projector_ip}:{projector_port}, Typ: {projector_type})..."
             )
-            lamp_on = read_lamp_on(projector_ip, projector_port)
+            if projector_type == "christie":
+                lamp_on = _read_lamp_on_christie(projector_ip, projector_port)
+            else:
+                lamp_on = read_lamp_on(projector_ip, projector_port)
+
             if lamp_on is True:
-                # Lampe AN → Vorstellung läuft → KEIN Reboot
+                # Lampe AN → Vorstellung läuft → KEIN Reboot (erste Sicherheitsschranke)
                 logger.warning(
                     f"[{cinema_name}] ⛔ Projektor-Lampe AN "
                     f"→ Vorstellung läuft! Reboot abgebrochen."
@@ -127,12 +213,15 @@ class RebootEngine:
                 self._process_outcome(cinema, outcome, today, silent=silent)
                 return outcome
             elif lamp_on is False:
-                logger.info(f"[{cinema_name}] Projektor-Lampe AUS ✓ – Reboot erlaubt.")
+                # Lampe AUS bestätigt – Reboot grundsätzlich möglich
+                # DoreMi-/IMS-Prüfung folgt noch als zweite Sicherheitsschranke
+                logger.info(f"[{cinema_name}] Projektor-Lampe AUS ✓ – DoreMi-Check folgt.")
             else:
-                # None = Projektor nicht erreichbar oder Antwort unklar
-                logger.warning(
-                    f"[{cinema_name}] ⚠️  Projektor-Lampenstatus nicht lesbar "
-                    f"({projector_ip}) – Reboot wird trotzdem fortgesetzt."
+                # None = Projektor OFFLINE (nachts stromlos) oder Antwort unklar
+                # → Lampen-Check übersprungen, DoreMi-Prüfung entscheidet allein
+                logger.info(
+                    f"[{cinema_name}] Projektor nicht erreichbar (OFFLINE/stromlos) – "
+                    f"Lampen-Check übersprungen, DoreMi-Check läuft weiter."
                 )
         else:
             logger.debug(f"[{cinema_name}] Kein projector_ip konfiguriert – Projektor-Check übersprungen.")
