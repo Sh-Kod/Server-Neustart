@@ -1,16 +1,20 @@
 """
-LampTelegramController – erweitert TelegramController um Lampen-Befehle.
+LampTelegramController – Hauptmenü mit 3 Bereichen + Lampen-Befehle.
 
-Erbt von cinema_reboot.TelegramController und fügt Befehl 13 hinzu.
+Erbt von cinema_reboot.TelegramController.
 cinema_reboot/ wird dabei NICHT verändert.
 
-Neue Befehle:
-  13 / lampen  → Lampen-Menü öffnen
-    1 – Alle Projektoren sofort prüfen
-    2 – Einzelner Kino-Check
-    3 – Prüfzeit ändern
-    4 – Projektor-IP bearbeiten
-    5 – Status (letzter Check)
+Hauptmenü (3 Bereiche):
+  1 – 🔄 Server-Neustart  → Untermenü mit allen Reboot-Befehlen
+  2 – 🔦 Lampen-Monitor   → Untermenü mit Lampen-Befehlen
+  3 – 💚 Projektor-Gesundheit → (kommt nach Screenshots)
+
+Lampen-Untermenü:
+  1 – Alle Projektoren sofort prüfen
+  2 – Einzelner Kino-Check
+  3 – Prüfzeit ändern
+  4 – Projektor-IP bearbeiten
+  5 – Status (letzter Check)
 """
 import logging
 import threading
@@ -24,16 +28,17 @@ from .lamp_monitor import LampMonitor
 
 logger = logging.getLogger(__name__)
 
-# Lamp-Dialog-Zustände (eigenes System, unabhängig vom Reboot-DialogManager)
-_LS_MENU            = "menu"
-_LS_SINGLE_SELECT   = "single_select"
-_LS_TIME_INPUT      = "time_input"
-_LS_PROJ_MENU       = "proj_menu"
-_LS_PROJ_SELECT     = "proj_select"
-_LS_PROJ_IP_INPUT   = "proj_ip_input"
-_LS_PROJ_IP_CONFIRM = "proj_ip_confirm"
-_LS_PROJ_DEL_SELECT = "proj_del_select"
-_LS_PROJ_DEL_CONFIRM= "proj_del_confirm"
+# Dialog-Zustände
+_LS_REBOOT_SUBMENU   = "reboot_submenu"
+_LS_MENU             = "lamp_menu"
+_LS_SINGLE_SELECT    = "single_select"
+_LS_TIME_INPUT       = "time_input"
+_LS_PROJ_MENU        = "proj_menu"
+_LS_PROJ_SELECT      = "proj_select"
+_LS_PROJ_IP_INPUT    = "proj_ip_input"
+_LS_PROJ_IP_CONFIRM  = "proj_ip_confirm"
+_LS_PROJ_DEL_SELECT  = "proj_del_select"
+_LS_PROJ_DEL_CONFIRM = "proj_del_confirm"
 
 CANCEL_WORDS = {"0", "/abbrechen", "/cancel", "/stop", "/exit"}
 
@@ -101,13 +106,54 @@ class LampTelegramController(TelegramController):
 
     def _handle_command(self, chat_id: str, text: str) -> None:
         cmd = text.lower().lstrip("/")
-        if cmd in ("13", "lampen", "lampe", "lamp", "lamps"):
+        if cmd in ("1", "reboot", "server", "neustart"):
+            self._ld_set(chat_id, _LS_REBOOT_SUBMENU)
+            self._send(chat_id, self._reboot_submenu_text())
+        elif cmd in ("2", "lampen", "lampe", "lamp", "13"):
             self._open_lamp_menu(chat_id)
+        elif cmd in ("3", "gesundheit", "health"):
+            self._ld_reset(chat_id)
+            self._send(chat_id,
+                "💚 *Projektor-Gesundheit*\n\n"
+                "⏳ _Wird gerade entwickelt..._\n"
+                "_(Screenshots ausstehend)_\n\n"
+                "_(0 = Zurück)_")
         else:
+            # Direktzugriff auf alte Befehle weiterhin möglich (z.B. /status, /pause)
             super()._handle_command(chat_id, text)
 
     def _main_menu(self) -> str:
-        return super()._main_menu() + "\n13 – 🔦 Lampen-Monitor"
+        paused = "⏸️ PAUSIERT" if self._app_state.paused else "▶️ AKTIV"
+        mode   = "⚠️ DRY-RUN"  if self._config.dry_run   else "✅ LIVE"
+        return (
+            f"🎬 *Cinema Server Manager*\n"
+            f"Status: {paused} | Modus: {mode}\n\n"
+            f"*Bereich wählen:*\n"
+            f"1 – 🔄 Server-Neustart\n"
+            f"2 – 🔦 Lampen-Monitor\n"
+            f"3 – 💚 Projektor-Gesundheit\n\n"
+            f"_0 oder /abbrechen = Abbrechen_"
+        )
+
+    def _reboot_submenu_text(self) -> str:
+        paused = "⏸️ pausiert" if self._app_state.paused else "▶️ läuft"
+        mode   = "⚠️ DRY-RUN"  if self._config.dry_run   else "✅ LIVE"
+        return (
+            f"🔄 *Server-Neustart*  ({paused} | {mode})\n\n"
+            f"1 – Status aller Kinos\n"
+            f"2 – Diese Hilfe\n"
+            f"3 – Automatisierung pausieren\n"
+            f"4 – Automatisierung fortsetzen\n"
+            f"5 – Wartungsfenster ändern\n"
+            f"6 – Server konfigurieren\n"
+            f"7 – Zugangsdaten ändern\n"
+            f"8 – Sofort-Reboot auslösen\n"
+            f"9 – Scheduler neu starten\n"
+            f"10 – Programm beenden\n"
+            f"11 – Browser-Modus umschalten\n"
+            f"12 – Version & Laufzeit\n\n"
+            f"_0 = ← Hauptmenü_"
+        )
 
     # ── Lampen-Menü ───────────────────────────────────────────────────────────
 
@@ -129,6 +175,7 @@ class LampTelegramController(TelegramController):
     def _handle_lamp_dialog(self, chat_id: str, text: str) -> None:
         state = self._ld_state(chat_id)
         dispatch = {
+            _LS_REBOOT_SUBMENU:  self._dlg_reboot_submenu,
             _LS_MENU:            self._dlg_lamp_menu,
             _LS_SINGLE_SELECT:   self._dlg_single_select,
             _LS_TIME_INPUT:      self._dlg_time_input,
@@ -145,6 +192,13 @@ class LampTelegramController(TelegramController):
         else:
             self._ld_reset(chat_id)
             self._send(chat_id, "❓ Unbekannter Zustand – zurückgesetzt.")
+
+    # ── Reboot-Untermenü ─────────────────────────────────────────────────────
+
+    def _dlg_reboot_submenu(self, chat_id: str, text: str) -> None:
+        """Leitet Auswahl im Reboot-Untermenü an den originalen Command-Handler weiter."""
+        self._ld_reset(chat_id)          # Lamp-Dialog beenden
+        super()._handle_command(chat_id, text)   # Original-Reboot-Befehl ausführen
 
     # ── Dialog 1: Alle sofort prüfen ─────────────────────────────────────────
 
