@@ -28,6 +28,18 @@ cinemas:
     enabled: true
     # Kein projector_ip → Projektor-Check wird übersprungen
 
+  - id: kino08
+    name: "Kino 08"
+    ip: "192.168.1.18"
+    type: "doremi"
+    enabled: true
+    # Christie CP4435-RGB – CineLife+ WebSocket-Protokoll
+    # projector_type: "christie" aktiviert den Christie-Checker (WebSocket Port 5004)
+    # HINWEIS: websocket-client muss installiert sein: pip install websocket-client
+    projector_ip: "192.168.1.28"     # IP des Christie Projektors
+    projector_port: 5004             # WebSocket-Port (Christie CineLife+: 5004)
+    projector_type: "christie"       # "barco" (Standard) oder "christie"
+
   # Weitere Kinos nach Bedarf hier ergänzen...
 
 # Login-Daten (gelten für alle Kinos)

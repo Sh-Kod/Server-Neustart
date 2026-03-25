@@ -83,6 +83,7 @@ class HealthMonitor:
             projector_ip=projector["projector_ip"],
             projector_port=int(projector.get("projector_port", 43728)),
             timeout=self._config.health_timeout,
+            projector_type=projector.get("projector_type", "barco"),
         )
 
     def get_state(self) -> HealthState:
@@ -116,6 +117,7 @@ class HealthMonitor:
                 projector_ip=proj["projector_ip"],
                 projector_port=int(proj.get("projector_port", 43728)),
                 timeout=self._config.health_timeout,
+                projector_type=proj.get("projector_type", "barco"),
             )
             results.append(result)
         return results

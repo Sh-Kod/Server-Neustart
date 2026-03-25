@@ -44,6 +44,7 @@ class LampConfig:
                 "name":           c["name"],
                 "projector_ip":   c["projector_ip"],
                 "projector_port": int(c.get("projector_port", 43728)),
+                "projector_type": c.get("projector_type", "barco"),
             }
             for c in cinemas
             if c.get("enabled", True) and c.get("projector_ip")

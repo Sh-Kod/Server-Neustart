@@ -120,13 +120,26 @@ def check_health(
     projector_ip:   str,
     projector_port: int = _DEFAULT_PORT,
     timeout:        int = _DEFAULT_TIMEOUT,
+    projector_type: str = "barco",
 ) -> HealthResult:
     """
-    Fragt den Gesundheitsstatus des Barco Projektors ab.
+    Fragt den Gesundheitsstatus des Projektors ab.
+    Unterstützt: barco (Binary TCP) und christie (WebSocket JSON-RPC).
 
-    Gibt GREEN / BLUE / YELLOW / RED zurück.
-    RED = sofortiger Alarm erforderlich (nicht erreichbar ODER Fehler > 0).
+    Gibt GREEN / BLUE / YELLOW / RED / OFFLINE zurück.
     """
+    # Christie CineLife+ → separater Checker
+    if projector_type.lower() == "christie":
+        from .christie_checker import check_christie_health
+        return check_christie_health(
+            cinema_id=cinema_id,
+            cinema_name=cinema_name,
+            projector_ip=projector_ip,
+            projector_port=projector_port if projector_port != _DEFAULT_PORT else 5004,
+            timeout=timeout,
+        )
+
+    # Barco Binary Protocol (Standard)
     request = _build_status_request()
     logger.debug(
         f"[GESUNDHEIT] {cinema_name} ({projector_ip}:{projector_port}) – "
