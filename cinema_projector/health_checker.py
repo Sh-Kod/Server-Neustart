@@ -74,6 +74,7 @@ class HealthResult:
     error_msg:     str = ""
     error_details: list = field(default_factory=list)  # dekodierte Fehlertexte
     temperature_c: float = -1.0                        # Temperatur in °C, -1 = unbekannt
+    lamp_on:       object = None                       # True=AN, False=AUS, None=unbekannt
     raw_response:  str = field(default="", repr=False)  # für Debugging
 
 
@@ -125,6 +126,10 @@ def check_health(
     projector_port: int = _DEFAULT_PORT,
     timeout:        int = _DEFAULT_TIMEOUT,
     projector_type: str = "barco",
+    snmp_temp_oid:  str = "",
+    snmp_temp_div:  float = 1.0,
+    snmp_community: str = "public",
+    snmp_port:      int = 161,
 ) -> HealthResult:
     """
     Fragt den Gesundheitsstatus des Projektors ab.
@@ -239,13 +244,71 @@ def check_health(
 
     error_details = build_barco_error_details(notifications, warnings, errors)
 
+    # Lampenstatus (separate kurze Verbindung – gleicher Port)
+    lamp_on = _read_barco_lamp_status(projector_ip, projector_port, timeout)
+
+    # Temperatur via SNMP (optional, nur wenn OID konfiguriert)
+    temperature_c = -1.0
+    if snmp_temp_oid:
+        temperature_c = _read_barco_snmp_temp(
+            projector_ip, snmp_temp_oid, snmp_temp_div,
+            snmp_community, snmp_port, timeout,
+        )
+
     return HealthResult(
         cinema_id=cinema_id, cinema_name=cinema_name,
         reachable=True, color=color,
         notifications=notifications, warnings=warnings, errors=errors,
         error_details=error_details,
+        lamp_on=lamp_on,
+        temperature_c=temperature_c,
         raw_response=response.hex(),
     )
+
+
+def _read_barco_snmp_temp(
+    ip: str,
+    oid: str,
+    divisor: float,
+    community: str,
+    port: int,
+    timeout: int,
+) -> float:
+    """Liest Barco-Projektortemperatur via SNMP. Gibt °C zurück oder -1.0 bei Fehler."""
+    try:
+        from .snmp_client import snmp_get
+        raw = snmp_get(ip, community, oid, port, timeout)
+        if isinstance(raw, int):
+            temp = raw / divisor if divisor != 1.0 else float(raw)
+            logger.debug(f"[TEMP] {ip}: SNMP {oid} = {raw} → {temp:.1f}°C")
+            return temp
+    except Exception as e:
+        logger.debug(f"[TEMP] {ip}: SNMP-Fehler ({oid}): {e}")
+    return -1.0
+
+
+def _read_barco_lamp_status(ip: str, port: int, timeout: int) -> object:
+    """
+    Liest den Barco-Lampenstatus via TCP (kurze 2. Verbindung).
+    Gibt True (AN), False (AUS) oder None (nicht lesbar) zurück.
+    Nutzt den gleichen Befehl wie cinema_reboot/barco_projector.py.
+    """
+    _LAMP_READ = bytes([_START, _ADDR, 0x76, 0x9A, 0x10, _STOP])
+    try:
+        with socket.create_connection((ip, port), timeout=timeout) as sock:
+            sock.sendall(_LAMP_READ)
+            ack = _recv_exact(sock, 6, timeout)
+            if not ack or len(ack) < 4 or ack[2] != _ACK_CMD0 or ack[3] != _ACK_CMD1:
+                return None
+            resp = _recv_exact(sock, 7, timeout)
+            if resp and len(resp) >= 5 and resp[0] == _START and resp[-1] == _STOP:
+                if resp[4] == 0x01:
+                    return True   # Lampe AN
+                if resp[4] == 0x00:
+                    return False  # Lampe AUS
+    except Exception:
+        pass
+    return None
 
 
 def _recv_exact(sock: socket.socket, n: int, timeout: int) -> bytes:

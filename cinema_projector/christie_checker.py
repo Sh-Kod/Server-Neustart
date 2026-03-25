@@ -127,6 +127,7 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
     notifications = 0
     error_details: list[str] = []
     temperature_c = -1.0
+    lamp_on       = None   # True=AN, False=AUS, None=unbekannt
 
     for item in root.findall("StatusItem"):
         try:
@@ -147,6 +148,14 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
                     temperature_c = parsed  # höchste gemessene Temperatur merken
             except (ValueError, IndexError):
                 pass
+
+        # Lampenstatus aus StatusItems extrahieren
+        if lamp_on is None and ("laser" in name.lower() or "lamp" in name.lower()):
+            val_l = val.lower()
+            if val_l in ("on", "1", "true", "running", "active"):
+                lamp_on = True
+            elif val_l in ("off", "0", "false", "standby", "idle"):
+                lamp_on = False
 
         if alarm >= 2:
             errors += 1
@@ -178,4 +187,5 @@ def _parse_status_xml(cinema_id: str, cinema_name: str, xml_str: str):
         errors=errors,
         error_details=error_details,
         temperature_c=temperature_c,
+        lamp_on=lamp_on,
     )

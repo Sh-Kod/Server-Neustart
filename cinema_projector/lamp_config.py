@@ -40,11 +40,15 @@ class LampConfig:
         cinemas = raw.get("cinemas", [])
         self.projectors = [
             {
-                "id":             c["id"],
-                "name":           c["name"],
-                "projector_ip":   c["projector_ip"],
-                "projector_port": int(c.get("projector_port", 43728)),
-                "projector_type": c.get("projector_type", "barco"),
+                "id":              c["id"],
+                "name":            c["name"],
+                "projector_ip":    c["projector_ip"],
+                "projector_port":  int(c.get("projector_port", 43728)),
+                "projector_type":  c.get("projector_type", "barco"),
+                # Optionale SNMP Temperatur-OID für Barco (leer = kein Temp-Check via SNMP)
+                "snmp_temp_oid":   c.get("snmp_temp_oid", ""),
+                # Divisor falls Projektor Temperatur x10 liefert (z.B. 456 → 45.6°C)
+                "snmp_temp_div":   float(c.get("snmp_temp_div", 1.0)),
             }
             for c in cinemas
             if c.get("enabled", True) and c.get("projector_ip")

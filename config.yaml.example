@@ -13,13 +13,16 @@ cinemas:
     ip: "192.168.1.11"        # IP-Adresse des Kino-Servers
     type: "doremi"            # Typ: "doremi" oder "ims3000"
     enabled: true
-    # Barco Projektor – Lampenstatus-Check (optional)
+    # Barco Projektor – Lampenstatus-Check + Gesundheits-Monitoring
     # Wenn angegeben: Lampe wird VOR dem Reboot gelesen.
     # Lampe AN  → Reboot wird NICHT ausgeführt (Vorstellung läuft)
     # Lampe AUS → Reboot wird fortgesetzt
-    # ACHTUNG: Das Programm schaltet die Lampe NIEMALS! Nur lesen.
+    # ACHTUNG: Das Programm schaltet die Lampe NIEMALS selbst! Nur lesen.
     projector_ip: "192.168.1.21"     # IP des Barco Projektors
     projector_port: 43728            # TCP-Port (Series 2: 43728 | Series 1: 43680)
+    # Optional: Temperatur-Monitoring via SNMP
+    # snmp_temp_oid: "1.3.6.1.4.1.12612.220.11.2.2.4.6.1.2.1"  # OID aus Barco MIB
+    # snmp_temp_div: 1.0   # Divisor (falls Projektor Temp*10 liefert → 10.0)
 
   - id: kino02
     name: "Kino 02"

@@ -618,11 +618,12 @@ class LampTelegramController(TelegramController):
 
             color    = entry.get("color", "unknown")
             checked  = entry.get("last_checked", "—")
-            changed  = entry.get("last_changed", "—")
             notif    = entry.get("notifications", 0)
             warn     = entry.get("warnings", 0)
             err      = entry.get("errors", 0)
-            err_msg  = entry.get("error_msg", "")
+            temp     = entry.get("temperature_c", -1.0)
+            lamp_on  = entry.get("lamp_on")
+            details  = entry.get("error_details", [])
 
             icon = {
                 HealthColor.GREEN:   "💚",
@@ -632,23 +633,40 @@ class LampTelegramController(TelegramController):
                 HealthColor.OFFLINE: "⬛",
             }.get(color, "❓")
 
-            # Zeitstempel kürzen (nur HH:MM)
+            # Lampenstatus-Icon
+            if lamp_on is True:
+                lamp_str = " 💡AN"
+            elif lamp_on is False:
+                lamp_str = " 🌑AUS"
+            else:
+                lamp_str = ""
+
+            # Temperatur
+            temp_str = f" 🌡️{temp:.0f}°C" if temp > 0 else ""
+
             checked_short = checked[11:16] if len(checked) > 11 else checked
-            changed_short = changed[11:16] if len(changed) > 11 else changed
 
             if color == HealthColor.OFFLINE:
-                detail = "kein Strom / nicht erreichbar"
+                status_line = f"{icon} *{name}* – stromlos / offline"
             elif color == HealthColor.RED:
-                detail = f"F:{err} W:{warn} M:{notif}"
-                if err_msg:
-                    detail += f" – {err_msg}"
+                status_line = (
+                    f"{icon} *{name}*{lamp_str}{temp_str} – "
+                    f"F:{err} W:{warn} M:{notif}"
+                )
+            elif color in (HealthColor.YELLOW, HealthColor.BLUE):
+                status_line = (
+                    f"{icon} *{name}*{lamp_str}{temp_str} – "
+                    f"M:{notif} W:{warn}"
+                )
             else:
-                detail = f"M:{notif} W:{warn} F:{err}"
+                status_line = f"{icon} *{name}*{lamp_str}{temp_str}"
 
-            lines.append(
-                f"{icon} *{name}* – {detail}\n"
-                f"   _geprüft {checked_short} | seit {changed_short}_"
-            )
+            lines.append(f"{status_line}\n   _geprüft {checked_short}_")
+
+            # Top-Fehlerdetails bei ROT anzeigen (max. 3)
+            if color == HealthColor.RED and details:
+                for d in details[:3]:
+                    lines.append(f"   • {d}")
 
         if not self._lamp_cfg.projectors:
             lines.append("_Keine Projektoren konfiguriert._")
@@ -674,13 +692,28 @@ class LampTelegramController(TelegramController):
                 HealthColor.OFFLINE: "⬛",
             }.get(r.color, "❓")
 
+            lamp_str = ""
+            if r.lamp_on is True:
+                lamp_str = " 💡AN"
+            elif r.lamp_on is False:
+                lamp_str = " 🌑AUS"
+
+            temp_str = f" 🌡️{r.temperature_c:.0f}°C" if r.temperature_c > 0 else ""
+
             if r.color == HealthColor.OFFLINE:
-                detail = "kein Strom / nicht erreichbar"
+                lines.append(f"{icon} *{r.cinema_name}* – stromlos / offline")
             elif r.color == HealthColor.RED:
-                detail = f"Fehler: {r.errors} | Warnungen: {r.warnings} | Meldungen: {r.notifications}"
+                lines.append(
+                    f"{icon} *{r.cinema_name}*{lamp_str}{temp_str} – "
+                    f"F:{r.errors} W:{r.warnings} M:{r.notifications}"
+                )
+                for d in r.error_details[:3]:
+                    lines.append(f"   • {d}")
             else:
-                detail = f"Meldungen: {r.notifications} | Warnungen: {r.warnings} | Fehler: {r.errors}"
-            lines.append(f"{icon} *{r.cinema_name}* – {detail}")
+                lines.append(
+                    f"{icon} *{r.cinema_name}*{lamp_str}{temp_str} – "
+                    f"M:{r.notifications} W:{r.warnings}"
+                )
 
         return "\n".join(lines)
 

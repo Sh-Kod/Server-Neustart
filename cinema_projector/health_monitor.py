@@ -88,6 +88,10 @@ class HealthMonitor:
             projector_port=int(projector.get("projector_port", 43728)),
             timeout=self._config.health_timeout,
             projector_type=projector.get("projector_type", "barco"),
+            snmp_temp_oid=projector.get("snmp_temp_oid", ""),
+            snmp_temp_div=float(projector.get("snmp_temp_div", 1.0)),
+            snmp_community=self._config.snmp_community,
+            snmp_port=self._config.snmp_port,
         )
 
     def get_state(self) -> HealthState:
@@ -125,6 +129,10 @@ class HealthMonitor:
                 projector_port=int(proj.get("projector_port", 43728)),
                 timeout=self._config.health_timeout,
                 projector_type=proj.get("projector_type", "barco"),
+                snmp_temp_oid=proj.get("snmp_temp_oid", ""),
+                snmp_temp_div=float(proj.get("snmp_temp_div", 1.0)),
+                snmp_community=self._config.snmp_community,
+                snmp_port=self._config.snmp_port,
             )
             results.append(result)
         return results
@@ -132,6 +140,10 @@ class HealthMonitor:
     def _process_result(self, result: HealthResult) -> None:
         """Vergleicht neuen Zustand mit letztem bekannten – sendet Alarm bei Bedarf."""
         prev_color = self._state.get_color(result.cinema_id)
+
+        # Vorherige Temperatur VOR dem State-Update lesen (Spam-Schutz)
+        prev_entry = self._state.get_entry(result.cinema_id)
+        prev_temp  = prev_entry.get("temperature_c", -1.0)
 
         # State aktualisieren
         self._state.update(
@@ -145,13 +157,13 @@ class HealthMonitor:
             error_msg=result.error_msg,
             error_details=result.error_details,
             temperature_c=result.temperature_c,
+            lamp_on=result.lamp_on,
         )
 
         # ── Temperatur-Alarm ──────────────────────────────────────────────────
         if result.reachable and result.temperature_c > 0:
             threshold = self._thresholds.get(result.cinema_id)
             if result.temperature_c >= threshold:
-                prev_temp = self._state.get_entry(result.cinema_id).get("temperature_c", -1)
                 # Nur Alarm wenn vorher unter Schwellwert (kein Spam)
                 if prev_temp < threshold or prev_temp < 0:
                     if self._config.telegram_enabled:
