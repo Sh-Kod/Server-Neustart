@@ -347,6 +347,31 @@ def _sleep_interruptible(seconds: int, app_state: AppState) -> None:
         time.sleep(1)
 
 
+def _migrate_config(config_path: str, config: "Config") -> None:
+    """Ergänzt fehlende Einstellungen automatisch in config.yaml.
+    Wird bei jedem Programmstart ausgeführt – sicher, da nur FEHLENDE Werte gesetzt werden.
+    So muss der Kunde die config.yaml nicht manuell anpassen."""
+    from cinema_reboot.config_writer import update_config_value
+
+    migrations = [
+        # (yaml-Pfad,                        Standard-Wert,   Beschreibung)
+        (["settings", "startup_wait_minutes"],    15,  "Max. Wartezeit Hochfahren (Min.)"),
+        (["settings", "group_size"],               4,  "Kinos pro Startgruppe"),
+        (["settings", "group_interval_minutes"],   2,  "Pause zwischen Gruppen (Min.)"),
+    ]
+
+    settings = config._raw.get("settings", {})
+    for key_path, default, description in migrations:
+        key = key_path[-1]
+        if key not in settings:
+            try:
+                update_config_value(config_path, key_path, default)
+                config._raw["settings"][key] = default
+                logger.info(f"Config-Migration: '{key}' = {default} ergänzt ({description})")
+            except Exception as e:
+                logger.warning(f"Config-Migration fehlgeschlagen für '{key}': {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Cinema Server Reboot – Automatisches Reboot-Tool für Kino-Server"
@@ -400,6 +425,9 @@ def main():
     # Logging einrichten
     log_level = logging.DEBUG if args.verbose else logging.INFO
     setup_logging(config.log_dir, level=log_level)
+
+    # Config-Migration: fehlende Einstellungen automatisch ergänzen
+    _migrate_config(config_path, config)
 
     # Dry-Run via Kommandozeile überschreiben
     if args.dry_run:
