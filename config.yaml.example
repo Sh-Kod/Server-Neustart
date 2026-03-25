@@ -61,11 +61,23 @@ settings:
   # Wartezeit nach Reboot-Auslösung, bis Server wieder erreichbar sein muss (Minuten)
   reboot_wait_minutes: 4
 
-  # Maximale Wartezeit gesamt (Minuten) - danach gilt Reboot als "unklar"
-  reboot_timeout_minutes: 20
+  # Max. Wartezeit bis Server vollständig hochgefahren ist (Minuten)
+  # Nach Ablauf → SOFORT Telegram-Alarm für diesen Saal!
+  startup_wait_minutes: 15
 
   # Wartezeit zwischen Wiederholungsversuchen bei Blockierung (Minuten)
   retry_interval_minutes: 60
+
+  # ── Gruppen-Reboot Einstellungen ──────────────────────────────────────────
+  # Kinos werden in Gruppen eingeteilt und gestaffelt gestartet.
+  # Alle Kinos starten innerhalb weniger Minuten ab Fensterbeginn.
+  # Beispiel: 13 Kinos, group_size=4, interval=2 Min → alle fertig in ~6 Min.
+
+  # Anzahl Kinos pro Startgruppe
+  group_size: 4
+
+  # Pause zwischen zwei Gruppen (Minuten)
+  group_interval_minutes: 2
 
   # HTTP-Timeout für Erreichbarkeitscheck (Sekunden)
   http_timeout_seconds: 10

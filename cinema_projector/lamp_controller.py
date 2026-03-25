@@ -141,7 +141,7 @@ class LampTelegramController(TelegramController):
         return (
             f"🔄 *Server-Neustart*  ({paused} | {mode})\n\n"
             f"1 – Status aller Kinos\n"
-            f"2 – Diese Hilfe\n"
+            f"2 – Letzter Reboot (alle Säle)\n"
             f"3 – Automatisierung pausieren\n"
             f"4 – Automatisierung fortsetzen\n"
             f"5 – Wartungsfenster ändern\n"
@@ -196,9 +196,65 @@ class LampTelegramController(TelegramController):
     # ── Reboot-Untermenü ─────────────────────────────────────────────────────
 
     def _dlg_reboot_submenu(self, chat_id: str, text: str) -> None:
-        """Leitet Auswahl im Reboot-Untermenü an den originalen Command-Handler weiter."""
-        self._ld_reset(chat_id)          # Lamp-Dialog beenden
-        super()._handle_command(chat_id, text)   # Original-Reboot-Befehl ausführen
+        """Leitet Auswahl im Reboot-Untermenü weiter.
+        '2' → Letzter-Reboot-Status, alle anderen → Original-Reboot-Handler."""
+        self._ld_reset(chat_id)
+        if text.strip() == "2":
+            self._send(chat_id, self._build_last_reboot_status())
+        else:
+            super()._handle_command(chat_id, text)
+
+    def _build_last_reboot_status(self) -> str:
+        """Zeigt für jedes Kino wann der letzte Reboot war und ob er erfolgreich war."""
+        from datetime import datetime as _dt
+        from cinema_reboot.state_manager import Status
+
+        now  = _dt.now(self._tz)
+        today = now.strftime("%Y-%m-%d")
+        all_state = self._state.get_all()
+
+        lines = [f"📋 *Letzter Reboot – alle Säle*\n_{now.strftime('%d.%m.%Y %H:%M')}_\n"]
+
+        for cinema in self._config.cinemas:
+            cid  = cinema["id"]
+            name = cinema["name"]
+            entry = all_state.get(cid, {})
+            status      = entry.get("status", Status.IDLE)
+            reboot_at   = entry.get("last_reboot_at")
+            attempt_at  = entry.get("last_attempt_at")
+            attempt_cnt = entry.get("attempt_count", 0)
+            last_error  = entry.get("last_error", "")
+
+            if reboot_at:
+                try:
+                    dt = _dt.fromisoformat(reboot_at)
+                    if dt.tzinfo is None:
+                        dt = self._tz.localize(dt)
+                    time_str = dt.strftime("%a %d.%m. %H:%M")
+                except Exception:
+                    time_str = reboot_at[:16]
+
+                if status == Status.SUCCESS:
+                    lines.append(f"✅ *{name}* – {time_str}")
+                else:
+                    err = last_error or "unbekannt"
+                    lines.append(f"❌ *{name}* – letzter Erfolg {time_str} | jetzt: {err}")
+            elif attempt_at:
+                # Versuche gemacht, aber noch kein Erfolg
+                try:
+                    dt = _dt.fromisoformat(attempt_at)
+                    if dt.tzinfo is None:
+                        dt = self._tz.localize(dt)
+                    time_str = dt.strftime("%a %d.%m. %H:%M")
+                except Exception:
+                    time_str = attempt_at[:16]
+                err = last_error or "unbekannt"
+                tries = f"{attempt_cnt}× versucht" if attempt_cnt else ""
+                lines.append(f"❌ *{name}* – {time_str} | {err}{' | ' + tries if tries else ''}")
+            else:
+                lines.append(f"⏳ *{name}* – noch nie gebootet")
+
+        return "\n".join(lines)
 
     # ── Dialog 1: Alle sofort prüfen ─────────────────────────────────────────
 

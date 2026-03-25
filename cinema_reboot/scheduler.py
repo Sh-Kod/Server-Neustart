@@ -13,7 +13,6 @@ Logik:
 """
 import json
 import os
-import random
 from datetime import datetime, timedelta
 from typing import Optional
 import pytz
@@ -23,14 +22,14 @@ from .state_manager import StateManager, Status
 
 
 class ScheduledCinema:
-    """Repräsentiert ein geplantes Kino mit zufälliger Startzeit."""
+    """Repräsentiert ein geplantes Kino mit geplanter Startzeit."""
     def __init__(self, cinema: dict, scheduled_time: datetime):
         self.cinema = cinema
         self.scheduled_time = scheduled_time
 
 
 class Scheduler:
-    """Verwaltet die tagesbasierte Zufallsplanung für alle Kinos."""
+    """Verwaltet die tagesbasierte Gruppen-Planung für alle Kinos."""
 
     SCHEDULE_FILE = "schedule_today.json"
 
@@ -86,18 +85,31 @@ class Scheduler:
         self._build_schedule()
 
     def _build_schedule(self) -> None:
-        """Weist jedem Kino eine zufällige Startzeit im Wartungsfenster zu."""
+        """Weist jedem Kino eine gruppenbasierte Startzeit zu.
+
+        Logik:
+          - Kinos werden der Reihe nach in Gruppen eingeteilt (group_size).
+          - Gruppe 0 startet sofort beim Fensterbeginn.
+          - Jede weitere Gruppe startet group_interval_minutes später.
+          - Beispiel (group_size=4, interval=2 Min, 13 Kinos, Start 05:00):
+              Kino 01-04 → 05:00
+              Kino 05-08 → 05:02
+              Kino 09-12 → 05:04
+              Kino 13    → 05:06
+        """
         today = self._today_str()
         now = self._now()
         window_start = self._parse_time(self._config.mw_start, now)
-        window_end = self._parse_time(self._config.mw_end, now)
-        window_seconds = int((window_end - window_start).total_seconds())
 
-        for cinema in self._config.cinemas:
+        group_size     = self._config.group_size
+        group_interval = self._config.group_interval_minutes
+
+        for idx, cinema in enumerate(self._config.cinemas):
             cid = cinema["id"]
             if cid not in self._today_schedule:
-                offset = random.randint(0, max(0, window_seconds - 120))
-                scheduled = window_start + timedelta(seconds=offset)
+                group_idx = idx // group_size
+                offset_min = group_idx * group_interval
+                scheduled = window_start + timedelta(minutes=offset_min)
                 self._today_schedule[cid] = scheduled.isoformat()
 
         self._save_schedule(today)

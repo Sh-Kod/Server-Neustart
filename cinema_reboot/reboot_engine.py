@@ -60,7 +60,7 @@ class RebootEngine:
             dry_run=self._config.dry_run,
             http_timeout=self._config.http_timeout_seconds,
             reboot_wait_minutes=self._config.reboot_wait_minutes,
-            reboot_timeout_minutes=self._config.reboot_timeout_minutes,
+            reboot_timeout_minutes=self._config.startup_wait_minutes,
         )
         if cinema["type"] == "ims3000":
             return IMS3000Handler(**common_args)
@@ -139,6 +139,9 @@ class RebootEngine:
 
         if not silent:
             self._telegram.send_start_attempt(cinema_name, dry_run=self._config.dry_run)
+
+        # ── Versuch zählen ───────────────────────────────────────────────
+        self._state.record_attempt(cinema_id, self._now())
 
         # ── Schritt 1-5: Browser + Handler ──────────────────────────────
         self._state.set_in_progress(cinema_id)
@@ -261,13 +264,12 @@ class RebootEngine:
 
         # State aktualisieren
         if result == RebootResult.SUCCESS:
-            self._state.set_success(cinema_id, today)
+            self._state.set_success(cinema_id, today, at_time=self._now())
             if not silent:
                 self._telegram.send_reboot_success(cinema_name, outcome.duration_seconds)
 
         elif result == RebootResult.DRY_RUN_OK:
-            # Im Dry-Run keinen echten Erfolg markieren
-            self._state.set_success(cinema_id, today)  # Damit wir pro Tag nur 1× testen
+            self._state.set_success(cinema_id, today, at_time=self._now())
             logger.info(f"[{cinema_name}] [DRY-RUN] Als 'success' für heute markiert.")
 
         elif result == RebootResult.BLOCKED_BY_PLAYBACK:
