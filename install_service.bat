@@ -32,54 +32,61 @@ exit /b 1
 :found_python
 echo [OK] Python gefunden: %PYTHON_EXE%
 
-:: NSSM prüfen
-if not exist "%PROGRAM_DIR%nssm.exe" (
-    echo.
-    echo [FEHLER] nssm.exe nicht gefunden!
-    echo.
-    echo Bitte herunterladen von: https://nssm.cc/download
-    echo Die nssm.exe ^(aus dem win64 Ordner^) in diesen Ordner legen:
-    echo   %PROGRAM_DIR%
-    echo.
-    pause
-    exit /b 1
+:: NSSM suchen – zuerst im Programmordner, dann im PATH
+set NSSM_EXE=
+if exist "%NSSM_EXE%" (
+    set NSSM_EXE=%PROGRAM_DIR%nssm.exe
+    echo [OK] NSSM gefunden: %PROGRAM_DIR%nssm.exe
+    goto :nssm_ok
 )
-echo [OK] NSSM gefunden
+for /f "tokens=*" %%i in ('where nssm 2^>nul') do (
+    set NSSM_EXE=%%i
+    echo [OK] NSSM gefunden: %%i
+    goto :nssm_ok
+)
+echo.
+echo [FEHLER] nssm.exe nicht gefunden!
+echo Bitte herunterladen von: https://nssm.cc/download
+echo Die nssm.exe in diesen Ordner legen: %PROGRAM_DIR%
+echo.
+pause
+exit /b 1
+:nssm_ok
 
 :: Dienst entfernen falls schon vorhanden
 sc query "%SERVICE_NAME%" >nul 2>&1
 if %errorlevel% == 0 (
     echo [INFO] Bestehender Dienst wird entfernt...
-    "%PROGRAM_DIR%nssm.exe" stop "%SERVICE_NAME%" confirm >nul 2>&1
-    "%PROGRAM_DIR%nssm.exe" remove "%SERVICE_NAME%" confirm
+    "%NSSM_EXE%" stop "%SERVICE_NAME%" confirm >nul 2>&1
+    "%NSSM_EXE%" remove "%SERVICE_NAME%" confirm
 )
 
 echo.
 echo [INFO] Installiere Dienst "%SERVICE_NAME%"...
 
 :: Dienst installieren
-"%PROGRAM_DIR%nssm.exe" install "%SERVICE_NAME%" "%PYTHON_EXE%" main.py
+"%NSSM_EXE%" install "%SERVICE_NAME%" "%PYTHON_EXE%" main.py
 
 :: Dienst konfigurieren
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppDirectory "%PROGRAM_DIR%"
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" DisplayName "Cinema Server Auto Reboot"
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" Description "Automatischer Kino-Server Neustart mit Telegram-Steuerung"
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" Start SERVICE_AUTO_START
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppStdout "%PROGRAM_DIR%logs\service_stdout.log"
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppStderr "%PROGRAM_DIR%logs\service_stderr.log"
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppRotateFiles 1
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppRotateBytes 10485760
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppDirectory "%PROGRAM_DIR%"
+"%NSSM_EXE%" set "%SERVICE_NAME%" DisplayName "Cinema Server Auto Reboot"
+"%NSSM_EXE%" set "%SERVICE_NAME%" Description "Automatischer Kino-Server Neustart mit Telegram-Steuerung"
+"%NSSM_EXE%" set "%SERVICE_NAME%" Start SERVICE_AUTO_START
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppStdout "%PROGRAM_DIR%logs\service_stdout.log"
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppStderr "%PROGRAM_DIR%logs\service_stderr.log"
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppRotateFiles 1
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppRotateBytes 10485760
 
 :: Bei Absturz automatisch neu starten (nach 5 Sekunden)
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppExit Default Restart
-"%PROGRAM_DIR%nssm.exe" set "%SERVICE_NAME%" AppRestartDelay 5000
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppExit Default Restart
+"%NSSM_EXE%" set "%SERVICE_NAME%" AppRestartDelay 5000
 
 :: logs Ordner erstellen falls nicht vorhanden
 if not exist "%PROGRAM_DIR%logs" mkdir "%PROGRAM_DIR%logs"
 
 echo.
 echo [INFO] Starte Dienst...
-"%PROGRAM_DIR%nssm.exe" start "%SERVICE_NAME%"
+"%NSSM_EXE%" start "%SERVICE_NAME%"
 
 echo.
 echo ============================================================
