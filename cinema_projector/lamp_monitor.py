@@ -81,6 +81,13 @@ class LampMonitor:
     def _run_checks(self) -> list:
         results = []
         for proj in self._config.projectors:
+            # Christie-Projektoren haben keinen SNMP-Lampenzähler → überspringen
+            if proj.get("projector_type", "barco").lower() != "barco":
+                logger.debug(
+                    f"[LAMPE] {proj['name']}: kein SNMP-Check "
+                    f"(Typ: {proj.get('projector_type', '?')})"
+                )
+                continue
             result = check_lamp(
                 cinema_id=proj["id"],
                 cinema_name=proj["name"],

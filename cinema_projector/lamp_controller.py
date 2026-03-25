@@ -366,6 +366,15 @@ class LampTelegramController(TelegramController):
         ).start()
 
     def _run_check_single(self, chat_id: str, proj: dict) -> None:
+        # Christie hat keinen SNMP-Lampenzähler → Hinweis statt Fehler
+        if proj.get("projector_type", "barco").lower() != "barco":
+            self._send(
+                chat_id,
+                f"ℹ️ *{proj['name']}* – kein Lampen-SNMP-Check\n"
+                f"Typ: {proj.get('projector_type', '?').upper()} verwendet kein SNMP.\n"
+                f"Lampenstatus → Gesundheits-Menü (Option 3 → Einzelcheck)",
+            )
+            return
         from .lamp_checker import check_lamp
         try:
             result = check_lamp(
