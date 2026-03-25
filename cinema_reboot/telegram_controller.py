@@ -168,44 +168,32 @@ class TelegramController:
     def _handle_command(self, chat_id: str, text: str) -> None:
         cmd = text.lower().lstrip("/")
 
-        if cmd in ("start", "hilfe", "menu", "2", "help"):
+        if cmd in ("start", "hilfe", "menu", "help"):
             self._send(chat_id, self._main_menu())
 
         elif cmd in ("1", "status"):
             self._send(chat_id, self._build_status())
 
-        elif cmd in ("3", "pausieren", "pause"):
-            self._app_state.pause()
-            self._send(chat_id, "⏸️ Automatisierung *pausiert*.\n\nMit Befehl *4* wieder fortsetzen.")
-
-        elif cmd in ("4", "fortsetzen", "resume"):
-            self._app_state.resume()
-            self._send(chat_id, "▶️ Automatisierung *fortgesetzt*.")
-
-        elif cmd in ("5", "zeitplan"):
+        elif cmd in ("2", "zeitplan"):
             self._dm.start(DS.SCHEDULE_MENU)
             self._send(chat_id, self._schedule_menu_text())
 
-        elif cmd in ("6", "server"):
+        elif cmd in ("3", "server"):
             self._dm.start(DS.SERVER_MENU)
             self._send(chat_id, self._server_menu_text())
 
-        elif cmd in ("7", "zugangsdaten", "login"):
+        elif cmd in ("4", "zugangsdaten", "login"):
             self._dm.start(DS.CREDS_USERNAME)
             self._send(chat_id, "🔑 *Zugangsdaten ändern*\n\nNeuen Benutzernamen eingeben:\n_(0 = Abbrechen)_")
 
-        elif cmd in ("8", "sofort"):
+        elif cmd in ("5", "sofort"):
             self._cmd_immediate(chat_id)
 
-        elif cmd in ("9", "neustart", "restart"):
+        elif cmd in ("6", "scheduler"):
             self._app_state.mark_scheduler_restart()
             self._send(chat_id, "🔄 Scheduler neu gestartet – Tagesplan wird neu erstellt.")
 
-        elif cmd in ("10", "shutdown", "beenden"):
-            self._dm.start(DS.SHUTDOWN_CONFIRM)
-            self._send(chat_id, "⚠️ *Programm wirklich beenden?*\n\n*ja* bestätigen, *0* abbrechen.")
-
-        elif cmd in ("11", "headless"):
+        elif cmd in ("7", "headless"):
             current = self._config._raw.get("settings", {}).get("headless", False)
             new_val = not current
             status = "unsichtbar (headless)" if new_val else "sichtbar (mit Fenster)"
@@ -217,7 +205,7 @@ class TelegramController:
                 f"Neu: `{status}`\n\n"
                 f"*ja* bestätigen, *0* abbrechen.")
 
-        elif cmd in ("12", "ping", "version", "info"):
+        elif cmd in ("ping", "version", "info"):
             self._send(chat_id, self._build_ping())
 
         else:

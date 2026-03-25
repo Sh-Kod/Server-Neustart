@@ -164,17 +164,12 @@ class LampTelegramController(TelegramController):
         return (
             f"🔄 *Server-Neustart*  ({paused} | {mode})\n\n"
             f"1 – Status aller Kinos\n"
-            f"2 – Letzter Reboot (alle Säle)\n"
-            f"3 – Automatisierung pausieren\n"
-            f"4 – Automatisierung fortsetzen\n"
-            f"5 – Wartungsfenster ändern\n"
-            f"6 – Server konfigurieren\n"
-            f"7 – Zugangsdaten ändern\n"
-            f"8 – Sofort-Reboot auslösen\n"
-            f"9 – Scheduler neu starten\n"
-            f"10 – Programm beenden\n"
-            f"11 – Browser-Modus umschalten\n"
-            f"12 – Version & Laufzeit\n\n"
+            f"2 – Wartungsfenster ändern\n"
+            f"3 – Server konfigurieren\n"
+            f"4 – Zugangsdaten ändern\n"
+            f"5 – Sofort-Reboot auslösen\n"
+            f"6 – Scheduler neu starten\n"
+            f"7 – Browser-Modus umschalten\n\n"
             f"_0 = ← Hauptmenü_"
         )
 
@@ -1102,7 +1097,8 @@ class LampTelegramController(TelegramController):
             f"Status: {status}\n\n"
             f"{pause_line}\n"
             f"2 – 🔄 Programm neu starten\n"
-            f"3 – 🛑 Programm beenden\n\n"
+            f"3 – 🛑 Programm beenden\n"
+            f"4 – 📊 Version & Laufzeit\n\n"
             f"_0 = Zurück_"
         )
 
@@ -1129,8 +1125,11 @@ class LampTelegramController(TelegramController):
                 "🛑 *Programm wirklich beenden?*\n\n"
                 "Das Programm stoppt vollständig. Manueller Neustart nötig.\n\n"
                 "*ja* bestätigen, *0* abbrechen.")
+        elif t == "4":
+            self._ld_reset(chat_id)
+            self._send(chat_id, self._build_ping())
         else:
-            self._send(chat_id, "Bitte 1–3 eingeben.\n\n" + self._prog_menu_text())
+            self._send(chat_id, "Bitte 1–4 eingeben.\n\n" + self._prog_menu_text())
 
     def _dlg_prog_restart_confirm(self, chat_id: str, text: str) -> None:
         if text.lower() not in ("ja", "yes", "j", "y"):
