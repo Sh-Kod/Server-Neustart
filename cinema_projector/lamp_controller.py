@@ -58,6 +58,11 @@ _HS_CTRL_SELECT     = "health_ctrl_select"
 _HS_CTRL_ACTION     = "health_ctrl_action"
 _HS_CTRL_CONFIRM    = "health_ctrl_confirm"
 
+# Dialog-Zustände (Programm-Steuerung)
+_PS_MENU            = "prog_menu"
+_PS_RESTART_CONFIRM = "prog_restart_confirm"
+_PS_STOP_CONFIRM    = "prog_stop_confirm"
+
 CANCEL_WORDS = {"0", "/abbrechen", "/cancel", "/stop", "/exit"}
 
 
@@ -133,6 +138,8 @@ class LampTelegramController(TelegramController):
             self._open_lamp_menu(chat_id)
         elif cmd in ("3", "gesundheit", "health"):
             self._open_health_menu(chat_id)
+        elif cmd in ("4", "programm", "prog"):
+            self._open_prog_menu(chat_id)
         else:
             # Direktzugriff auf alte Befehle weiterhin möglich (z.B. /status, /pause)
             super()._handle_command(chat_id, text)
@@ -146,7 +153,8 @@ class LampTelegramController(TelegramController):
             f"*Bereich wählen:*\n"
             f"1 – 🔄 Server-Neustart\n"
             f"2 – 🔦 Lampen-Monitor\n"
-            f"3 – 💚 Projektor-Gesundheit\n\n"
+            f"3 – 💚 Projektor-Gesundheit\n"
+            f"4 – ⚙️ Programm\n\n"
             f"_0 oder /abbrechen = Abbrechen_"
         )
 
@@ -207,6 +215,9 @@ class LampTelegramController(TelegramController):
             _HS_CTRL_SELECT:     self._dlg_ctrl_select,
             _HS_CTRL_ACTION:     self._dlg_ctrl_action,
             _HS_CTRL_CONFIRM:    self._dlg_ctrl_confirm,
+            _PS_MENU:            self._dlg_prog_menu,
+            _PS_RESTART_CONFIRM: self._dlg_prog_restart_confirm,
+            _PS_STOP_CONFIRM:    self._dlg_prog_stop_confirm,
         }
         handler = dispatch.get(state)
         if handler:
@@ -1044,3 +1055,76 @@ class LampTelegramController(TelegramController):
                     lines.append(f"  {icon} {r['name']}: nicht erreichbar")
 
         return "\n".join(lines)
+
+    # ── Programm-Steuerung (Hauptmenü Option 4) ───────────────────────────────
+
+    def _open_prog_menu(self, chat_id: str) -> None:
+        self._ld_set(chat_id, _PS_MENU)
+        self._send(chat_id, self._prog_menu_text())
+
+    def _prog_menu_text(self) -> str:
+        paused = self._app_state.paused
+        pause_line = (
+            "1 – ▶️ Monitoring fortsetzen"
+            if paused else
+            "1 – ⏸️ Monitoring pausieren"
+        )
+        status = "⏸️ PAUSIERT" if paused else "▶️ AKTIV"
+        return (
+            f"⚙️ *Programm-Steuerung*\n"
+            f"Status: {status}\n\n"
+            f"{pause_line}\n"
+            f"2 – 🔄 Programm neu starten\n"
+            f"3 – 🛑 Programm beenden\n\n"
+            f"_0 = Zurück_"
+        )
+
+    def _dlg_prog_menu(self, chat_id: str, text: str) -> None:
+        t = text.strip()
+        if t == "1":
+            if self._app_state.paused:
+                self._app_state.resume()
+                self._ld_reset(chat_id)
+                self._send(chat_id, "▶️ Monitoring *fortgesetzt*.")
+            else:
+                self._app_state.pause()
+                self._ld_reset(chat_id)
+                self._send(chat_id, "⏸️ Monitoring *pausiert*.\n\nMit Option 1 wieder fortsetzen.")
+        elif t == "2":
+            self._ld_next(chat_id, _PS_RESTART_CONFIRM)
+            self._send(chat_id,
+                "🔄 *Programm wirklich neu starten?*\n\n"
+                "Das Programm stoppt kurz und startet sich selbst neu.\n\n"
+                "*ja* bestätigen, *0* abbrechen.")
+        elif t == "3":
+            self._ld_next(chat_id, _PS_STOP_CONFIRM)
+            self._send(chat_id,
+                "🛑 *Programm wirklich beenden?*\n\n"
+                "Das Programm stoppt vollständig. Manueller Neustart nötig.\n\n"
+                "*ja* bestätigen, *0* abbrechen.")
+        else:
+            self._send(chat_id, "Bitte 1–3 eingeben.\n\n" + self._prog_menu_text())
+
+    def _dlg_prog_restart_confirm(self, chat_id: str, text: str) -> None:
+        if text.lower() not in ("ja", "yes", "j", "y"):
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Abgebrochen.")
+            return
+        self._ld_reset(chat_id)
+        self._send(chat_id, "🔄 Programm wird neu gestartet...")
+        import os, subprocess, sys, threading as _t
+        def _do_restart():
+            import time
+            time.sleep(1)   # kurz warten damit Telegram-Nachricht rausgeht
+            subprocess.Popen([sys.executable] + sys.argv, cwd=os.getcwd())
+            os._exit(0)
+        _t.Thread(target=_do_restart, daemon=True).start()
+
+    def _dlg_prog_stop_confirm(self, chat_id: str, text: str) -> None:
+        if text.lower() not in ("ja", "yes", "j", "y"):
+            self._ld_reset(chat_id)
+            self._send(chat_id, "❌ Abgebrochen.")
+            return
+        self._ld_reset(chat_id)
+        self._send(chat_id, "🛑 Programm wird beendet...")
+        self._app_state.request_shutdown()
