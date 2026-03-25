@@ -518,6 +518,10 @@ def main():
     else:
         logger.info("Gesundheits-Monitor deaktiviert oder keine Projektoren konfiguriert.")
 
+    # Startup-Benachrichtigung via Telegram (zeigt Hauptmenü)
+    if controller and hasattr(controller, "send_startup_notification"):
+        controller.send_startup_notification()
+
     # Hauptschleife
     try:
         main_loop(config, app_state, state, scheduler, engine, telegram)

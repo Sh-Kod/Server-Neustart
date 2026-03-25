@@ -1058,6 +1058,33 @@ class LampTelegramController(TelegramController):
 
     # ── Programm-Steuerung (Hauptmenü Option 4) ───────────────────────────────
 
+    def send_startup_notification(self) -> None:
+        """
+        Sendet Hauptmenü an alle autorisierten Chats nach Programmstart.
+        Wird von main.py aufgerufen, sobald alle Komponenten bereit sind.
+        """
+        import os
+        restarted = os.environ.get("CINEMA_RESTARTED") == "1"
+        header = (
+            "🔄 *Neustart erfolgreich!*\n"
+            "Alle Komponenten sind bereit.\n\n"
+            if restarted else
+            "🚀 *Programm gestartet!*\n\n"
+        )
+        msg = header + self._main_menu()
+
+        # An Haupt-Chat-ID senden
+        all_chats = [self._config.telegram_chat_id]
+        for cid in self._config.telegram_admin_chat_ids:
+            if cid not in all_chats:
+                all_chats.append(cid)
+
+        for chat_id in all_chats:
+            try:
+                self._send(chat_id, msg)
+            except Exception as e:
+                logger.warning(f"[STARTUP] Benachrichtigung an {chat_id} fehlgeschlagen: {e}")
+
     def _open_prog_menu(self, chat_id: str) -> None:
         self._ld_set(chat_id, _PS_MENU)
         self._send(chat_id, self._prog_menu_text())
@@ -1116,7 +1143,9 @@ class LampTelegramController(TelegramController):
         def _do_restart():
             import time
             time.sleep(1)   # kurz warten damit Telegram-Nachricht rausgeht
-            subprocess.Popen([sys.executable] + sys.argv, cwd=os.getcwd())
+            env = os.environ.copy()
+            env["CINEMA_RESTARTED"] = "1"
+            subprocess.Popen([sys.executable] + sys.argv, cwd=os.getcwd(), env=env)
             os._exit(0)
         _t.Thread(target=_do_restart, daemon=True).start()
 
