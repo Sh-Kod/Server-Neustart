@@ -5,9 +5,11 @@ Prüft alle poll_interval_seconds Sekunden alle konfigurierten Projektoren
 via Barco Binary Protocol (TCP Port 43728).
 
 Sendet sofortigen Telegram-Alarm wenn:
-  – Farbe wechselt ZU Rot (GREEN/BLUE/YELLOW → RED)
-  – Projektor nach Ausfall wieder erreichbar (RED → nicht-RED)
+  – Farbe wechselt ZU Rot (GREEN/BLUE/YELLOW/OFFLINE → RED)
+  – Fehler behoben: RED → GREEN/BLUE/YELLOW
 
+OFFLINE (stromlos / nicht erreichbar): NIE Alarm.
+  Nacht-Abschaltung ist normal – kein Alarm beim Ausgehen oder Einschalten.
 GREEN/BLUE/YELLOW: kein Alarm, nur Logging.
 """
 import logging
@@ -156,16 +158,10 @@ class HealthMonitor:
         # ── Alarm-Logik ────────────────────────────────────────────────────────
         #
         # 🔴 ROT:     Projektor verbunden, aber error_count > 0 → IMMER Alarm
-        # ⬛ OFFLINE: TCP nicht erreichbar (kein Strom / Netzfehler)
-        #   - vorher unknown/OFFLINE → kein Alarm (Projektor war nicht bekannt)
-        #   - vorher GREEN/BLUE/YELLOW → Alarm! (Projektor war an, plötzlich weg)
-        #   - vorher RED → kein extra Alarm (war schon defekt)
-        # 💚🔵🟡 Entwarnung: nur wenn vorher ROT oder OFFLINE (war vorher bekannt an)
-
-        _was_known_on = prev_color in (
-            HealthColor.GREEN, HealthColor.BLUE, HealthColor.YELLOW
-        )
-        _was_problem = prev_color in (HealthColor.RED, HealthColor.OFFLINE)
+        # ⬛ OFFLINE: TCP nicht erreichbar (stromlos / Netzfehler) → NIE Alarm
+        #             Nacht-Abschaltung ist normal, kein Alarm gewünscht.
+        # 💚🔵🟡 Entwarnung: NUR wenn vorher ROT (Fehler behoben)
+        #             Rückkehr aus OFFLINE (Morgen einschalten) → kein Alarm
 
         if result.color == HealthColor.RED:
             # Immer Alarm wenn Fehler vorhanden (egal welcher Vorzustand)
@@ -176,18 +172,9 @@ class HealthMonitor:
                 msg,
             )
 
-        elif result.color == HealthColor.OFFLINE and _was_known_on:
-            # Projektor war an (grün/blau/gelb), jetzt plötzlich offline → Alarm
-            msg = _build_offline_alert(result, prev_color)
-            _send_telegram(
-                self._config.telegram_bot_token,
-                self._config.telegram_chat_id,
-                msg,
-            )
-
         elif result.color in (HealthColor.GREEN, HealthColor.BLUE, HealthColor.YELLOW) \
-                and _was_problem:
-            # Projektor war defekt/offline, jetzt wieder normal → Entwarnung
+                and prev_color == HealthColor.RED:
+            # Projektor war ROT (Fehler), jetzt wieder normal → Entwarnung
             msg = _build_recovery_msg(result, prev_color)
             _send_telegram(
                 self._config.telegram_bot_token,
