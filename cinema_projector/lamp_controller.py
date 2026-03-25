@@ -574,7 +574,8 @@ class LampTelegramController(TelegramController):
             "3 – Einzelner Projektor-Check\n"
             "4 – 🌡️ Temperatur-Schwellwert ändern\n"
             "5 – 🎛️ Projektor steuern\n"
-            "6 – 🌡️ Temperatur-Übersicht\n\n"
+            "6 – 🌡️ Temperatur-Übersicht\n"
+            "7 – 🔬 Christie StatusItems (Diagnose)\n\n"
             "💚 OK  🔵 Meldung  🟡 Warnung  🔴 Fehler  ⬛ Offline\n\n"
             "_0 = Zurück zum Hauptmenü_"
         )
@@ -609,8 +610,14 @@ class LampTelegramController(TelegramController):
         elif t == "6":
             self._ld_reset(chat_id)
             self._send(chat_id, self._build_temp_overview())
+        elif t == "7":
+            self._ld_reset(chat_id)
+            self._send(chat_id, "🔬 Verbinde mit Christie-Projektoren...")
+            threading.Thread(
+                target=self._run_christie_diagnostics, args=(chat_id,), daemon=True
+            ).start()
         else:
-            self._send(chat_id, "Bitte 1–6 eingeben.\n\n" + self._health_menu_text())
+            self._send(chat_id, "Bitte 1–7 eingeben.\n\n" + self._health_menu_text())
 
     def _build_health_overview(self) -> str:
         """Übersicht aller Projektor-Zustände aus dem letzten bekannten State."""
@@ -742,6 +749,88 @@ class LampTelegramController(TelegramController):
             lines.append(f"\n_Stand: {checked_str} – Option 2 für Sofortprüfung_")
 
         return "\n".join(lines)
+
+    def _run_christie_diagnostics(self, chat_id: str) -> None:
+        """
+        Verbindet zu allen Christie-Projektoren via WebSocket und sendet alle
+        empfangenen StatusItem-Namen + Werte nach Telegram – für Diagnose/Debugging.
+        """
+        import json
+        import xml.etree.ElementTree as ET
+
+        christie_projs = [
+            p for p in self._lamp_cfg.projectors
+            if p.get("projector_type", "barco").lower() == "christie"
+        ]
+
+        if not christie_projs:
+            self._send(chat_id, "ℹ️ Keine Christie-Projektoren konfiguriert.")
+            return
+
+        try:
+            import websocket as _ws
+        except ImportError:
+            self._send(chat_id, "❌ websocket-client nicht installiert.")
+            return
+
+        for proj in christie_projs:
+            ip   = proj.get("projector_ip", "")
+            port = int(proj.get("projector_port", 5004))
+            name = proj["name"]
+
+            if not ip:
+                self._send(chat_id, f"⚠️ *{name}*: keine IP konfiguriert.")
+                continue
+
+            try:
+                ws = _ws.create_connection(f"ws://{ip}:{port}/", timeout=10)
+            except Exception as e:
+                self._send(chat_id, f"⬛ *{name}*: Verbindung fehlgeschlagen – {e}")
+                continue
+
+            xml_str = None
+            try:
+                ws.settimeout(10)
+                for _ in range(20):
+                    try:
+                        raw  = ws.recv()
+                        data = json.loads(raw)
+                        if data.get("method") == 2011:
+                            props = data.get("result", {}).get("properties", [])
+                            if props:
+                                xml_str = props[0].get("value", "")
+                                break
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+            finally:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+            if not xml_str:
+                self._send(chat_id, f"⚠️ *{name}*: keine StatusItems empfangen (method 2011 fehlt).")
+                continue
+
+            try:
+                root = ET.fromstring(xml_str)
+            except ET.ParseError as e:
+                self._send(chat_id, f"❌ *{name}*: XML-Fehler – {e}")
+                continue
+
+            items = root.findall("StatusItem")
+            lines = [f"🔬 *{name}* – {len(items)} StatusItems:\n"]
+            for item in items:
+                iname  = item.findtext("name", "?")
+                ival   = item.findtext("value", "")
+                ialarm = item.findtext("alarmstate", "0")
+                alarm_icon = "" if ialarm == "0" else f" ⚠️{ialarm}"
+                lines.append(f"`{iname}` = `{ival}`{alarm_icon}")
+
+            # Telegram-Nachrichtenlimit: max 4096 Zeichen → aufteilen
+            msg = "\n".join(lines)
+            for chunk_start in range(0, len(msg), 3800):
+                self._send(chat_id, msg[chunk_start:chunk_start + 3800])
 
     def _run_health_check_all(self, chat_id: str) -> None:
         try:
