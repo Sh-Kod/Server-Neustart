@@ -29,6 +29,7 @@ from cinema_reboot.updater import check_and_update, start_background_updater
 from cinema_projector.lamp_config import LampConfig
 from cinema_projector.lamp_controller import LampTelegramController
 from cinema_projector.lamp_monitor import LampMonitor
+from cinema_projector.health_monitor import HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,13 @@ def handle_shutdown(sig, frame):
     _running = False
 
 
-def build_components(config: Config, config_path: str, lamp_monitor=None, lamp_config=None):
+def build_components(
+    config: Config,
+    config_path: str,
+    lamp_monitor=None,
+    lamp_config=None,
+    health_monitor=None,
+):
     """Erstellt alle Kern-Komponenten."""
     app_state = AppState(timezone=config.timezone)
     state = StateManager(config.state_file)
@@ -55,6 +62,7 @@ def build_components(config: Config, config_path: str, lamp_monitor=None, lamp_c
             controller = LampTelegramController(
                 lamp_monitor=lamp_monitor,
                 lamp_config=lamp_config,
+                health_monitor=health_monitor,
                 config=config,
                 app_state=app_state,
                 state_manager=state,
@@ -354,22 +362,26 @@ def _migrate_config(config_path: str, config: "Config") -> None:
     from cinema_reboot.config_writer import update_config_value
 
     migrations = [
-        # (yaml-Pfad,                        Standard-Wert,   Beschreibung)
-        (["settings", "startup_wait_minutes"],    15,  "Max. Wartezeit Hochfahren (Min.)"),
-        (["settings", "group_size"],               4,  "Kinos pro Startgruppe"),
-        (["settings", "group_interval_minutes"],   2,  "Pause zwischen Gruppen (Min.)"),
+        # (yaml-Pfad,                                              Standard-Wert,   Beschreibung)
+        (["settings", "startup_wait_minutes"],                        15,  "Max. Wartezeit Hochfahren (Min.)"),
+        (["settings", "group_size"],                                   4,  "Kinos pro Startgruppe"),
+        (["settings", "group_interval_minutes"],                       2,  "Pause zwischen Gruppen (Min.)"),
+        (["projector_monitor", "health_poll_interval_seconds"],       60,  "Gesundheits-Monitor Intervall (Sek.)"),
+        (["projector_monitor", "health_timeout"],                      5,  "Gesundheits-Monitor TCP-Timeout (Sek.)"),
     ]
 
-    settings = config._raw.get("settings", {})
     for key_path, default, description in migrations:
-        key = key_path[-1]
-        if key not in settings:
+        # Abschnitt (erste Ebene) und Schlüssel (letzte Ebene) bestimmen
+        section_key = key_path[0]
+        leaf_key    = key_path[-1]
+        section     = config._raw.setdefault(section_key, {})
+        if leaf_key not in section:
             try:
                 update_config_value(config_path, key_path, default)
-                config._raw["settings"][key] = default
-                logger.info(f"Config-Migration: '{key}' = {default} ergänzt ({description})")
+                section[leaf_key] = default
+                logger.info(f"Config-Migration: '{'/'.join(key_path)}' = {default} ergänzt ({description})")
             except Exception as e:
-                logger.warning(f"Config-Migration fehlgeschlagen für '{key}': {e}")
+                logger.warning(f"Config-Migration fehlgeschlagen für '{'/'.join(key_path)}': {e}")
 
 
 def main():
@@ -434,19 +446,24 @@ def main():
         config._raw["settings"]["dry_run"] = True
         logger.warning("Dry-Run via Kommandozeile aktiviert.")
 
-    # Lampen-Monitor vorzeitig erstellen (wird für LampTelegramController benötigt)
-    lamp_cfg     = None
-    lamp_monitor = None
+    # Lampen-Monitor und Gesundheits-Monitor vorzeitig erstellen
+    lamp_cfg       = None
+    lamp_monitor   = None
+    health_monitor = None
     try:
         lamp_cfg = LampConfig(config_path)
         if lamp_cfg.enabled and lamp_cfg.projectors:
-            lamp_monitor = LampMonitor(lamp_cfg)
+            lamp_monitor   = LampMonitor(lamp_cfg)
+            health_monitor = HealthMonitor(lamp_cfg)
     except Exception as e:
-        logger.warning(f"Lampen-Konfiguration konnte nicht geladen werden: {e}")
+        logger.warning(f"Lampen-/Gesundheits-Konfiguration konnte nicht geladen werden: {e}")
 
     # Komponenten erstellen
     app_state, state, telegram, scheduler, engine, controller = build_components(
-        config, config_path, lamp_monitor=lamp_monitor, lamp_config=lamp_cfg
+        config, config_path,
+        lamp_monitor=lamp_monitor,
+        lamp_config=lamp_cfg,
+        health_monitor=health_monitor,
     )
 
     # Signal-Handler für sauberes Beenden (CTRL+C, Windows-Shutdown)
@@ -491,6 +508,16 @@ def main():
     else:
         logger.info("Lampen-Monitor deaktiviert oder keine Projektoren konfiguriert.")
 
+    # Gesundheits-Monitor starten
+    if health_monitor:
+        health_monitor.start()
+        logger.info(
+            f"Gesundheits-Monitor gestartet – "
+            f"Intervall: {lamp_cfg.health_poll_interval_seconds}s"
+        )
+    else:
+        logger.info("Gesundheits-Monitor deaktiviert oder keine Projektoren konfiguriert.")
+
     # Hauptschleife
     try:
         main_loop(config, app_state, state, scheduler, engine, telegram)
@@ -499,6 +526,8 @@ def main():
             controller.stop()
         if lamp_monitor:
             lamp_monitor.stop()
+        if health_monitor:
+            health_monitor.stop()
 
     # Neustart nach Hintergrund-Update
     if app_state.update_available:

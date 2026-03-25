@@ -5,9 +5,9 @@ Erbt von cinema_reboot.TelegramController.
 cinema_reboot/ wird dabei NICHT verändert.
 
 Hauptmenü (3 Bereiche):
-  1 – 🔄 Server-Neustart  → Untermenü mit allen Reboot-Befehlen
-  2 – 🔦 Lampen-Monitor   → Untermenü mit Lampen-Befehlen
-  3 – 💚 Projektor-Gesundheit → (kommt nach Screenshots)
+  1 – 🔄 Server-Neustart        → Untermenü mit allen Reboot-Befehlen
+  2 – 🔦 Lampen-Monitor         → Untermenü mit Lampen-Befehlen
+  3 – 💚 Projektor-Gesundheit   → Übersicht + Sofortcheck
 
 Lampen-Untermenü:
   1 – Alle Projektoren sofort prüfen
@@ -15,6 +15,11 @@ Lampen-Untermenü:
   3 – Prüfzeit ändern
   4 – Projektor-IP bearbeiten
   5 – Status (letzter Check)
+
+Gesundheits-Untermenü:
+  1 – Übersicht (alle Projektoren)
+  2 – Sofort alle prüfen
+  3 – Einzelner Projektor-Check
 """
 import logging
 import threading
@@ -28,7 +33,7 @@ from .lamp_monitor import LampMonitor
 
 logger = logging.getLogger(__name__)
 
-# Dialog-Zustände
+# Dialog-Zustände (Lampe)
 _LS_REBOOT_SUBMENU   = "reboot_submenu"
 _LS_MENU             = "lamp_menu"
 _LS_SINGLE_SELECT    = "single_select"
@@ -39,6 +44,10 @@ _LS_PROJ_IP_INPUT    = "proj_ip_input"
 _LS_PROJ_IP_CONFIRM  = "proj_ip_confirm"
 _LS_PROJ_DEL_SELECT  = "proj_del_select"
 _LS_PROJ_DEL_CONFIRM = "proj_del_confirm"
+
+# Dialog-Zustände (Gesundheit)
+_HS_MENU            = "health_menu"
+_HS_SINGLE_SELECT   = "health_single_select"
 
 CANCEL_WORDS = {"0", "/abbrechen", "/cancel", "/stop", "/exit"}
 
@@ -53,11 +62,13 @@ class LampTelegramController(TelegramController):
         self,
         lamp_monitor: LampMonitor,
         lamp_config: LampConfig,
+        health_monitor=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._lamp        = lamp_monitor
         self._lamp_cfg    = lamp_config
+        self._health      = health_monitor  # HealthMonitor oder None
         self._lamp_dlg: dict = {}   # {chat_id: {"state": str, "data": dict}}
 
     # ── Dialog-Hilfsfunktionen ────────────────────────────────────────────────
@@ -112,12 +123,7 @@ class LampTelegramController(TelegramController):
         elif cmd in ("2", "lampen", "lampe", "lamp", "13"):
             self._open_lamp_menu(chat_id)
         elif cmd in ("3", "gesundheit", "health"):
-            self._ld_reset(chat_id)
-            self._send(chat_id,
-                "💚 *Projektor-Gesundheit*\n\n"
-                "⏳ _Wird gerade entwickelt..._\n"
-                "_(Screenshots ausstehend)_\n\n"
-                "_(0 = Zurück)_")
+            self._open_health_menu(chat_id)
         else:
             # Direktzugriff auf alte Befehle weiterhin möglich (z.B. /status, /pause)
             super()._handle_command(chat_id, text)
@@ -185,6 +191,8 @@ class LampTelegramController(TelegramController):
             _LS_PROJ_IP_CONFIRM: self._dlg_proj_ip_confirm,
             _LS_PROJ_DEL_SELECT: self._dlg_proj_del_select,
             _LS_PROJ_DEL_CONFIRM:self._dlg_proj_del_confirm,
+            _HS_MENU:            self._dlg_health_menu,
+            _HS_SINGLE_SELECT:   self._dlg_health_single_select,
         }
         handler = dispatch.get(state)
         if handler:
@@ -519,6 +527,157 @@ class LampTelegramController(TelegramController):
             self._send(chat_id, f"✅ *{cinema_name}*: Projektor-IP entfernt.")
         except Exception as e:
             self._ld_reset(chat_id)
+            self._send(chat_id, f"❌ Fehler: {e}")
+
+    # ── Gesundheits-Menü ─────────────────────────────────────────────────────
+
+    def _open_health_menu(self, chat_id: str) -> None:
+        if self._health is None:
+            self._ld_reset(chat_id)
+            self._send(chat_id,
+                "💚 *Projektor-Gesundheit*\n\n"
+                "⚠️ _Kein Projektor konfiguriert._\n"
+                "Bitte `projector_ip` in config.yaml ergänzen.\n\n"
+                "_(0 = Zurück)_")
+            return
+        self._ld_set(chat_id, _HS_MENU)
+        self._send(chat_id, self._health_menu_text())
+
+    def _health_menu_text(self) -> str:
+        return (
+            "💚 *Projektor-Gesundheit*\n\n"
+            "1 – Übersicht (alle Projektoren)\n"
+            "2 – Sofort alle prüfen\n"
+            "3 – Einzelner Projektor-Check\n\n"
+            "_0 = Zurück zum Hauptmenü_"
+        )
+
+    def _dlg_health_menu(self, chat_id: str, text: str) -> None:
+        t = text.strip()
+        if t == "1":
+            self._ld_reset(chat_id)
+            self._send(chat_id, self._build_health_overview())
+        elif t == "2":
+            self._ld_reset(chat_id)
+            self._send(chat_id, "🔄 Prüfe alle Projektoren... (kann einige Sekunden dauern)")
+            threading.Thread(
+                target=self._run_health_check_all, args=(chat_id,), daemon=True
+            ).start()
+        elif t == "3":
+            projs = self._lamp_cfg.projectors
+            if not projs:
+                self._ld_reset(chat_id)
+                self._send(chat_id, "❌ Keine Projektoren konfiguriert.")
+                return
+            lines = ["💚 *Einzelcheck* – Projektor wählen:\n"]
+            for i, p in enumerate(projs, 1):
+                lines.append(f"{i}. {p['name']} – {p['projector_ip']}")
+            lines.append("\n_(0 = Abbrechen)_")
+            self._ld_next(chat_id, _HS_SINGLE_SELECT)
+            self._send(chat_id, "\n".join(lines))
+        else:
+            self._send(chat_id, "Bitte 1–3 eingeben.\n\n" + self._health_menu_text())
+
+    def _build_health_overview(self) -> str:
+        """Übersicht aller Projektor-Zustände aus dem letzten bekannten State."""
+        from .health_checker import HealthColor
+        state = self._health.get_state()
+        all_data = state.get_all()
+
+        lines = ["💚 *Projektor-Gesundheit – Übersicht*\n"]
+
+        for proj in self._lamp_cfg.projectors:
+            cid  = proj["id"]
+            name = proj["name"]
+            entry = all_data.get(cid)
+
+            if not entry:
+                lines.append(f"❓ *{name}* – noch nicht geprüft")
+                continue
+
+            color    = entry.get("color", "unknown")
+            checked  = entry.get("last_checked", "—")
+            changed  = entry.get("last_changed", "—")
+            notif    = entry.get("notifications", 0)
+            warn     = entry.get("warnings", 0)
+            err      = entry.get("errors", 0)
+            err_msg  = entry.get("error_msg", "")
+
+            icon = {
+                HealthColor.GREEN:  "💚",
+                HealthColor.BLUE:   "🔵",
+                HealthColor.YELLOW: "🟡",
+                HealthColor.RED:    "🔴",
+            }.get(color, "❓")
+
+            # Zeitstempel kürzen (nur HH:MM)
+            checked_short = checked[11:16] if len(checked) > 11 else checked
+            changed_short = changed[11:16] if len(changed) > 11 else changed
+
+            if color == HealthColor.RED and not entry.get("reachable"):
+                detail = f"nicht erreichbar – {err_msg}" if err_msg else "nicht erreichbar"
+            else:
+                detail = f"M:{notif} W:{warn} F:{err}"
+
+            lines.append(
+                f"{icon} *{name}* – {detail}\n"
+                f"   _geprüft {checked_short} | seit {changed_short}_"
+            )
+
+        if not self._lamp_cfg.projectors:
+            lines.append("_Keine Projektoren konfiguriert._")
+
+        return "\n".join(lines)
+
+    def _run_health_check_all(self, chat_id: str) -> None:
+        try:
+            results = self._health.check_all_now()
+            self._send(chat_id, self._format_health_results(results))
+        except Exception as e:
+            self._send(chat_id, f"❌ Fehler bei der Prüfung: {e}")
+
+    def _format_health_results(self, results: list) -> str:
+        from .health_checker import HealthColor
+        lines = ["💚 *Projektor-Gesundheit – Sofortprüfung*\n"]
+        for r in results:
+            icon = {
+                HealthColor.GREEN:  "💚",
+                HealthColor.BLUE:   "🔵",
+                HealthColor.YELLOW: "🟡",
+                HealthColor.RED:    "🔴",
+            }.get(r.color, "❓")
+
+            if not r.reachable:
+                detail = f"nicht erreichbar – {r.error_msg}" if r.error_msg else "nicht erreichbar"
+            else:
+                detail = f"Meldungen: {r.notifications} | Warnungen: {r.warnings} | Fehler: {r.errors}"
+            lines.append(f"{icon} *{r.cinema_name}* – {detail}")
+
+        return "\n".join(lines)
+
+    def _dlg_health_single_select(self, chat_id: str, text: str) -> None:
+        projs = self._lamp_cfg.projectors
+        try:
+            idx = int(text.strip()) - 1
+            if idx < 0 or idx >= len(projs):
+                raise ValueError
+        except ValueError:
+            self._send(chat_id, "❌ Ungültige Nummer.")
+            return
+        proj = projs[idx]
+        self._ld_reset(chat_id)
+        self._send(chat_id, f"🔄 Prüfe *{proj['name']}*...")
+        threading.Thread(
+            target=self._run_health_check_single,
+            args=(chat_id, proj),
+            daemon=True,
+        ).start()
+
+    def _run_health_check_single(self, chat_id: str, proj: dict) -> None:
+        try:
+            result = self._health.check_one_now(proj)
+            self._send(chat_id, self._format_health_results([result]))
+        except Exception as e:
             self._send(chat_id, f"❌ Fehler: {e}")
 
     # ── Dialog 5: Status ──────────────────────────────────────────────────────

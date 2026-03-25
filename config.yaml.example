@@ -101,3 +101,23 @@ settings:
   # true  -> alle Kinos parallel (~7-8 Min. für 13 Kinos)
   # false -> nacheinander (~65 Min. für 13 Kinos)
   parallel_reboot: true
+
+# ── Projektor-Monitor (Lampe + Gesundheit) ────────────────────────────────────
+projector_monitor:
+  enabled: true
+
+  # ── Lampen-Monitor (SNMP) ───────────────────────────────────────────────────
+  # Täglich zur konfigurierten Uhrzeit → Telegram-Alarm wenn Lampe ≥ Schwellwert
+  check_time: "20:00"           # Prüfzeit (HH:MM)
+  warn_percent: 145             # ⚠️  Warnung ab diesem Prozentwert
+  critical_percent: 150         # ⛔  Kritisch ab diesem Prozentwert
+  snmp_community: "public"      # SNMP-Community (meist "public")
+  snmp_port: 161                # SNMP UDP-Port
+  snmp_timeout: 5               # Timeout in Sekunden
+  state_file: "lamp_state.json" # Speicherdatei für Lampen-Status
+
+  # ── Gesundheits-Monitor (Barco Binary Protocol TCP) ─────────────────────────
+  # Kontinuierliches Monitoring alle poll_interval_seconds Sekunden.
+  # Sofortiger Telegram-Alarm wenn Projektor ROT wird (nicht erreichbar / Fehler).
+  health_poll_interval_seconds: 60   # Abfrageintervall (Standard: 60 Sek.)
+  health_timeout: 5                  # TCP-Timeout pro Projektor (Sekunden)

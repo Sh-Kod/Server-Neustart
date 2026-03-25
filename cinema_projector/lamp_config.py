@@ -22,6 +22,10 @@ class LampConfig:
         self.snmp_timeout         = int(pm.get("snmp_timeout", 5))
         self.state_file           = pm.get("state_file", "lamp_state.json")
 
+        # Gesundheits-Monitor Einstellungen
+        self.health_poll_interval_seconds = int(pm.get("health_poll_interval_seconds", 60))
+        self.health_timeout               = int(pm.get("health_timeout", 5))
+
         # Zeitzone aus maintenance_window
         mw = raw.get("maintenance_window", {})
         self.timezone = mw.get("timezone", "Europe/Berlin")
@@ -36,9 +40,10 @@ class LampConfig:
         cinemas = raw.get("cinemas", [])
         self.projectors = [
             {
-                "id":           c["id"],
-                "name":         c["name"],
-                "projector_ip": c["projector_ip"],
+                "id":             c["id"],
+                "name":           c["name"],
+                "projector_ip":   c["projector_ip"],
+                "projector_port": int(c.get("projector_port", 43728)),
             }
             for c in cinemas
             if c.get("enabled", True) and c.get("projector_ip")
