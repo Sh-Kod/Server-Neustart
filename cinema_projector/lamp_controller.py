@@ -224,13 +224,9 @@ class LampTelegramController(TelegramController):
     # ── Reboot-Untermenü ─────────────────────────────────────────────────────
 
     def _dlg_reboot_submenu(self, chat_id: str, text: str) -> None:
-        """Leitet Auswahl im Reboot-Untermenü weiter.
-        '2' → Letzter-Reboot-Status, alle anderen → Original-Reboot-Handler."""
+        """Leitet Auswahl im Reboot-Untermenü weiter."""
         self._ld_reset(chat_id)
-        if text.strip() == "2":
-            self._send(chat_id, self._build_last_reboot_status())
-        else:
-            super()._handle_command(chat_id, text)
+        super()._handle_command(chat_id, text)
 
     def _build_last_reboot_status(self) -> str:
         """Zeigt für jedes Kino wann der letzte Reboot war und ob er erfolgreich war."""
