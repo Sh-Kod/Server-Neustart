@@ -660,11 +660,15 @@ class TelegramController:
     def _send(self, chat_id: str, text: str) -> None:
         """Sendet eine Markdown-Nachricht an den angegebenen Chat."""
         try:
-            self._session.post(
+            resp = self._session.post(
                 f"{self._base_url}/sendMessage",
                 json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
                 timeout=10,
             )
+            if not resp.ok:
+                logger.error(
+                    f"Telegram sendMessage fehlgeschlagen (HTTP {resp.status_code}): {resp.text[:200]}"
+                )
         except Exception as e:
             logger.warning(f"Fehler beim Senden an {chat_id}: {e}")
 
@@ -744,7 +748,7 @@ class TelegramController:
             sched_str = sched.strftime("%H:%M") if sched else "?"
             done_mark = " ✓" if done else ""
             lines.append(
-                f"{icon} *{cinema['name']}* – {status}{done_mark} (Plan: {sched_str})"
+                f"{icon} *{cinema['name']}* – `{status}`{done_mark} (Plan: {sched_str})"
             )
         return "\n".join(lines)
 
