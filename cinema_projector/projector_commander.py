@@ -156,8 +156,7 @@ def cmd_douser_open(
 ) -> CommandResult:
     """Douser/Shutter öffnen."""
     if projector_type.lower() == "christie":
-        port = projector_port or _CHRISTIE_DEFAULT_PORT
-        return _christie_send_command(projector_ip, port, "(SHU1)", timeout)
+        return _christie_send_command(projector_ip, _CHRISTIE_DEFAULT_PORT, "(SHU1)", timeout)
     port = projector_port or _BARCO_DEFAULT_PORT
     return _barco_send_command(projector_ip, port, _CMD_DOUSER_OPEN, timeout)
 
@@ -170,8 +169,7 @@ def cmd_douser_close(
 ) -> CommandResult:
     """Douser/Shutter schließen."""
     if projector_type.lower() == "christie":
-        port = projector_port or _CHRISTIE_DEFAULT_PORT
-        return _christie_send_command(projector_ip, port, "(SHU0)", timeout)
+        return _christie_send_command(projector_ip, _CHRISTIE_DEFAULT_PORT, "(SHU0)", timeout)
     port = projector_port or _BARCO_DEFAULT_PORT
     return _barco_send_command(projector_ip, port, _CMD_DOUSER_CLOSE, timeout)
 
@@ -184,8 +182,7 @@ def cmd_lamp_on(
 ) -> CommandResult:
     """Lampe / Laser einschalten."""
     if projector_type.lower() == "christie":
-        port = projector_port or _CHRISTIE_DEFAULT_PORT
-        return _christie_send_command(projector_ip, port, "(LSR1)", timeout)
+        return _christie_send_command(projector_ip, _CHRISTIE_DEFAULT_PORT, "(LSR1)", timeout)
     port = projector_port or _BARCO_DEFAULT_PORT
     return _barco_send_command(projector_ip, port, _CMD_LAMP_ON, timeout)
 
@@ -198,7 +195,6 @@ def cmd_lamp_off(
 ) -> CommandResult:
     """Lampe / Laser ausschalten."""
     if projector_type.lower() == "christie":
-        port = projector_port or _CHRISTIE_DEFAULT_PORT
-        return _christie_send_command(projector_ip, port, "(LSR0)", timeout)
+        return _christie_send_command(projector_ip, _CHRISTIE_DEFAULT_PORT, "(LSR0)", timeout)
     port = projector_port or _BARCO_DEFAULT_PORT
     return _barco_send_command(projector_ip, port, _CMD_LAMP_OFF, timeout)

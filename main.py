@@ -164,12 +164,19 @@ def cmd_test_projector(config: Config, cinema_id: str) -> None:
         print(f"{'═' * 50}\n")
         sys.exit(1)
 
-    projector_port = int(cinema.get("projector_port", 43728))
+    projector_type = cinema.get("projector_type", "barco").lower()
+    default_port   = 5004 if projector_type == "christie" else 43728
+    projector_port = int(cinema.get("projector_port", default_port))
     print(f"  Projektor IP:   {projector_ip}")
     print(f"  Projektor Port: {projector_port}")
+    print(f"  Projektor Typ:  {projector_type}")
     print(f"  Verbinde...")
 
-    lamp_on = read_lamp_on(projector_ip, projector_port)
+    if projector_type == "christie":
+        from cinema_reboot.reboot_engine import _read_lamp_on_christie
+        lamp_on = _read_lamp_on_christie(projector_ip, projector_port)
+    else:
+        lamp_on = read_lamp_on(projector_ip, projector_port)
 
     print(f"{'─' * 50}")
     if lamp_on is True:

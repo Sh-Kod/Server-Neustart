@@ -190,7 +190,8 @@ class RebootEngine:
         projector_ip   = cinema.get("projector_ip")
         projector_type = cinema.get("projector_type", "barco").lower()
         if projector_ip:
-            projector_port = int(cinema.get("projector_port", 43728))
+            default_port   = 5004 if projector_type == "christie" else 43728
+            projector_port = int(cinema.get("projector_port", default_port))
             logger.info(
                 f"[{cinema_name}] Projektor-Lampenstatus lesen "
                 f"({projector_ip}:{projector_port}, Typ: {projector_type})..."

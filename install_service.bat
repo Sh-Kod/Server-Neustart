@@ -33,8 +33,7 @@ exit /b 1
 echo [OK] Python gefunden: %PYTHON_EXE%
 
 :: NSSM suchen – zuerst im Programmordner, dann im PATH
-set NSSM_EXE=
-if exist "%NSSM_EXE%" (
+if exist "%PROGRAM_DIR%nssm.exe" (
     set NSSM_EXE=%PROGRAM_DIR%nssm.exe
     echo [OK] NSSM gefunden: %PROGRAM_DIR%nssm.exe
     goto :nssm_ok

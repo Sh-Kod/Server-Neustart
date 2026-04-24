@@ -528,6 +528,7 @@ class TelegramController:
         try:
             add_cinema_to_config(self._config_path, new_cinema)
             self._config._raw["cinemas"].append(new_cinema)
+            self._app_state.mark_scheduler_restart()
             self._dm.reset()
             self._send(chat_id, f"✅ *{d['new_name']}* (`{d['new_id']}`) hinzugefügt.")
         except Exception as e:
@@ -680,17 +681,12 @@ class TelegramController:
             f"Status: {paused} | Modus: {mode}\n\n"
             f"*Befehle:*\n"
             f"1 – Status aller Kinos\n"
-            f"2 – Diese Hilfe\n"
-            f"3 – Automatisierung pausieren\n"
-            f"4 – Automatisierung fortsetzen\n"
-            f"5 – Wartungsfenster ändern\n"
-            f"6 – Server konfigurieren\n"
-            f"7 – Zugangsdaten ändern\n"
-            f"8 – Sofort-Reboot auslösen\n"
-            f"9 – Scheduler neu starten\n"
-            f"10 – Programm beenden\n"
-            f"11 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n"
-            f"12 – Version & Laufzeit prüfen\n\n"
+            f"2 – Wartungsfenster ändern\n"
+            f"3 – Server konfigurieren\n"
+            f"4 – Zugangsdaten ändern\n"
+            f"5 – Sofort-Reboot auslösen\n"
+            f"6 – Scheduler neu starten\n"
+            f"7 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n\n"
             f"_0 oder /abbrechen = Dialog abbrechen_"
         )
 
