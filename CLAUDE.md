@@ -89,3 +89,7 @@ State-JSON direkt editieren (`state.json`, Pfad in config.yaml unter `state_file
 1. Programm neu starten (`Ctrl+C` + `python main.py`)
 2. Logs auf Exception-Muster prüfen
 3. Sicherstellen dass `_run_loop`-Exception-Handler per-Update greift (nicht per-Batch)
+
+Antworte immer auf Deutsch, egal was ich schreibe.
+Alle Erklärungen, Kommentare, Fehlermeldungen und Rückmeldungen sollen auf Deutsch sein.
+Schreibe Codekommentare ebenfalls auf Deutsch.
