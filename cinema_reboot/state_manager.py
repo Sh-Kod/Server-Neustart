@@ -56,6 +56,9 @@ class StateManager:
         if cinema_id not in self._state:
             self._state[cinema_id] = {
                 "last_success_date": None,
+                "last_reboot_at":    None,   # ISO-Datetime des letzten erfolgreichen Reboots
+                "last_attempt_at":   None,   # ISO-Datetime des letzten Versuchs (inkl. Fehler)
+                "attempt_count":     0,       # Anzahl Versuche heute
                 "last_reset_date": None,
                 "next_retry_time": None,
                 "last_error": None,
@@ -87,11 +90,32 @@ class StateManager:
                 and entry["last_success_date"] == today
             )
 
-    def set_success(self, cinema_id: str, today: str) -> None:
+    def get_last_reboot_at(self, cinema_id: str) -> Optional[str]:
+        with self._lock:
+            return self._get_cinema(cinema_id).get("last_reboot_at")
+
+    def get_last_attempt_at(self, cinema_id: str) -> Optional[str]:
+        with self._lock:
+            return self._get_cinema(cinema_id).get("last_attempt_at")
+
+    def get_attempt_count(self, cinema_id: str) -> int:
+        with self._lock:
+            return self._get_cinema(cinema_id).get("attempt_count", 0)
+
+    def record_attempt(self, cinema_id: str, at_time: datetime) -> None:
+        """Zählt einen Reboot-Versuch (wird vor jedem Run aufgerufen)."""
+        with self._lock:
+            entry = self._get_cinema(cinema_id)
+            entry["attempt_count"] = entry.get("attempt_count", 0) + 1
+            entry["last_attempt_at"] = at_time.isoformat()
+            self._save()
+
+    def set_success(self, cinema_id: str, today: str, at_time: Optional[datetime] = None) -> None:
         with self._lock:
             entry = self._get_cinema(cinema_id)
             entry["status"] = Status.SUCCESS
             entry["last_success_date"] = today
+            entry["last_reboot_at"] = (at_time or datetime.now()).isoformat()
             entry["next_retry_time"] = None
             entry["last_error"] = None
             self._save()
@@ -158,18 +182,22 @@ class StateManager:
 
             status = entry["status"]
 
-            # Laufenden Prozess nicht unterbrechen
+            # Laufenden Prozess nicht unterbrechen - aber nur wenn er HEUTE aktiv ist
             if status == Status.IN_PROGRESS:
-                return
+                last_attempt = entry.get("last_attempt_at", "")
+                if last_attempt and last_attempt[:10] == today:
+                    return
 
             # Heute bereits erfolgreich – nichts tun
             if status == Status.SUCCESS and entry.get("last_success_date") == today:
                 return
 
-            # Neuer Tag → alle alten Statuse zurücksetzen (SUCCESS, error, blocked, offline …)
+            # Neuer Tag → alle tagesbezogenen Felder zurücksetzen
             entry["status"] = Status.IDLE
             entry["next_retry_time"] = None
             entry["last_error"] = None
+            entry["attempt_count"] = 0
+            entry["last_attempt_at"] = None
             entry["last_reset_date"] = today
             self._save()
 

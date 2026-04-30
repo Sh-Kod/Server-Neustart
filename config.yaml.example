@@ -13,12 +13,37 @@ cinemas:
     ip: "192.168.1.11"        # IP-Adresse des Kino-Servers
     type: "doremi"            # Typ: "doremi" oder "ims3000"
     enabled: true
+    # Barco Projektor – Lampenstatus-Check + Gesundheits-Monitoring
+    # Wenn angegeben: Lampe wird VOR dem Reboot gelesen.
+    # Lampe AN  → Reboot wird NICHT ausgeführt (Vorstellung läuft)
+    # Lampe AUS → Reboot wird fortgesetzt
+    # ACHTUNG: Das Programm schaltet die Lampe NIEMALS selbst! Nur lesen.
+    projector_ip: "192.168.1.21"     # IP des Barco Projektors
+    projector_port: 43728            # TCP-Port (Series 2: 43728 | Series 1: 43680)
+    # Optional: Temperatur-Monitoring via SNMP
+    # OID ermittelt via: python barco_snmp_scan.py <projector_ip>
+    # Barco DP2K Series 2 – Gehäusetemperatur (°C direkt):
+    snmp_temp_oid: "1.3.6.1.4.1.12612.220.11.1.2.15.1.0"
+    snmp_temp_div: 1
 
   - id: kino02
     name: "Kino 02"
     ip: "192.168.1.12"
     type: "doremi"
     enabled: true
+    # Kein projector_ip → Projektor-Check wird übersprungen
+
+  - id: kino08
+    name: "Kino 08"
+    ip: "192.168.1.18"
+    type: "doremi"
+    enabled: true
+    # Christie CP4435-RGB – CineLife+ WebSocket-Protokoll
+    # projector_type: "christie" aktiviert den Christie-Checker (WebSocket Port 5004)
+    # HINWEIS: websocket-client muss installiert sein: pip install websocket-client
+    projector_ip: "192.168.1.28"     # IP des Christie Projektors
+    projector_port: 5004             # WebSocket-Port (Christie CineLife+: 5004)
+    projector_type: "christie"       # "barco" (Standard) oder "christie"
 
   # Weitere Kinos nach Bedarf hier ergänzen...
 
@@ -53,11 +78,23 @@ settings:
   # Wartezeit nach Reboot-Auslösung, bis Server wieder erreichbar sein muss (Minuten)
   reboot_wait_minutes: 4
 
-  # Maximale Wartezeit gesamt (Minuten) - danach gilt Reboot als "unklar"
-  reboot_timeout_minutes: 20
+  # Max. Wartezeit bis Server vollständig hochgefahren ist (Minuten)
+  # Nach Ablauf → SOFORT Telegram-Alarm für diesen Saal!
+  startup_wait_minutes: 15
 
   # Wartezeit zwischen Wiederholungsversuchen bei Blockierung (Minuten)
   retry_interval_minutes: 60
+
+  # ── Gruppen-Reboot Einstellungen ──────────────────────────────────────────
+  # Kinos werden in Gruppen eingeteilt und gestaffelt gestartet.
+  # Alle Kinos starten innerhalb weniger Minuten ab Fensterbeginn.
+  # Beispiel: 13 Kinos, group_size=4, interval=2 Min → alle fertig in ~6 Min.
+
+  # Anzahl Kinos pro Startgruppe
+  group_size: 4
+
+  # Pause zwischen zwei Gruppen (Minuten)
+  group_interval_minutes: 2
 
   # HTTP-Timeout für Erreichbarkeitscheck (Sekunden)
   http_timeout_seconds: 10
@@ -81,3 +118,23 @@ settings:
   # true  -> alle Kinos parallel (~7-8 Min. für 13 Kinos)
   # false -> nacheinander (~65 Min. für 13 Kinos)
   parallel_reboot: true
+
+# ── Projektor-Monitor (Lampe + Gesundheit) ────────────────────────────────────
+projector_monitor:
+  enabled: true
+
+  # ── Lampen-Monitor (SNMP) ───────────────────────────────────────────────────
+  # Täglich zur konfigurierten Uhrzeit → Telegram-Alarm wenn Lampe ≥ Schwellwert
+  check_time: "20:00"           # Prüfzeit (HH:MM)
+  warn_percent: 145             # ⚠️  Warnung ab diesem Prozentwert
+  critical_percent: 150         # ⛔  Kritisch ab diesem Prozentwert
+  snmp_community: "public"      # SNMP-Community (meist "public")
+  snmp_port: 161                # SNMP UDP-Port
+  snmp_timeout: 5               # Timeout in Sekunden
+  state_file: "lamp_state.json" # Speicherdatei für Lampen-Status
+
+  # ── Gesundheits-Monitor (Barco Binary Protocol TCP) ─────────────────────────
+  # Kontinuierliches Monitoring alle poll_interval_seconds Sekunden.
+  # Sofortiger Telegram-Alarm wenn Projektor ROT wird (nicht erreichbar / Fehler).
+  health_poll_interval_seconds: 60   # Abfrageintervall (Standard: 60 Sek.)
+  health_timeout: 5                  # TCP-Timeout pro Projektor (Sekunden)

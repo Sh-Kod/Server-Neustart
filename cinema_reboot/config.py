@@ -117,6 +117,25 @@ class Config:
         return int(self._raw["settings"].get("retry_interval_minutes", 60))
 
     @property
+    def group_size(self) -> int:
+        """Anzahl Kinos pro Startgruppe (Gruppen-Reboot)."""
+        return int(self._raw["settings"].get("group_size", 4))
+
+    @property
+    def group_interval_minutes(self) -> int:
+        """Pausenzeit zwischen zwei Gruppen in Minuten."""
+        return int(self._raw["settings"].get("group_interval_minutes", 2))
+
+    @property
+    def startup_wait_minutes(self) -> int:
+        """Max. Wartezeit nach Reboot, bis Server hochgefahren sein muss (Minuten).
+        Nach Ablauf → Sofort-Telegram-Alarm."""
+        return int(self._raw["settings"].get(
+            "startup_wait_minutes",
+            self._raw["settings"].get("reboot_timeout_minutes", 15),
+        ))
+
+    @property
     def http_timeout_seconds(self) -> int:
         return int(self._raw["settings"].get("http_timeout_seconds", 10))
 

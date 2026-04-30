@@ -109,14 +109,19 @@ class TelegramController:
         while self._running:
             try:
                 updates = self._get_updates()
-                for update in updates:
-                    self._handle_update(update)
             except requests.exceptions.RequestException as e:
                 logger.warning(f"Telegram Verbindungsfehler: {e}")
                 time.sleep(10)
+                continue
             except Exception as e:
-                logger.error(f"Fehler im Telegram-Controller: {e}", exc_info=True)
+                logger.error(f"Fehler beim Abrufen von Updates: {e}", exc_info=True)
                 time.sleep(5)
+                continue
+            for update in updates:
+                try:
+                    self._handle_update(update)
+                except Exception as e:
+                    logger.error(f"Fehler bei Update-Verarbeitung: {e}", exc_info=True)
 
     def _get_updates(self) -> list:
         resp = self._session.get(
@@ -168,44 +173,32 @@ class TelegramController:
     def _handle_command(self, chat_id: str, text: str) -> None:
         cmd = text.lower().lstrip("/")
 
-        if cmd in ("start", "hilfe", "menu", "2", "help"):
+        if cmd in ("start", "hilfe", "menu", "help"):
             self._send(chat_id, self._main_menu())
 
         elif cmd in ("1", "status"):
             self._send(chat_id, self._build_status())
 
-        elif cmd in ("3", "pausieren", "pause"):
-            self._app_state.pause()
-            self._send(chat_id, "⏸️ Automatisierung *pausiert*.\n\nMit Befehl *4* wieder fortsetzen.")
-
-        elif cmd in ("4", "fortsetzen", "resume"):
-            self._app_state.resume()
-            self._send(chat_id, "▶️ Automatisierung *fortgesetzt*.")
-
-        elif cmd in ("5", "zeitplan"):
+        elif cmd in ("2", "zeitplan"):
             self._dm.start(DS.SCHEDULE_MENU)
             self._send(chat_id, self._schedule_menu_text())
 
-        elif cmd in ("6", "server"):
+        elif cmd in ("3", "server"):
             self._dm.start(DS.SERVER_MENU)
             self._send(chat_id, self._server_menu_text())
 
-        elif cmd in ("7", "zugangsdaten", "login"):
+        elif cmd in ("4", "zugangsdaten", "login"):
             self._dm.start(DS.CREDS_USERNAME)
             self._send(chat_id, "🔑 *Zugangsdaten ändern*\n\nNeuen Benutzernamen eingeben:\n_(0 = Abbrechen)_")
 
-        elif cmd in ("8", "sofort"):
+        elif cmd in ("5", "sofort"):
             self._cmd_immediate(chat_id)
 
-        elif cmd in ("9", "neustart", "restart"):
+        elif cmd in ("6", "scheduler"):
             self._app_state.mark_scheduler_restart()
             self._send(chat_id, "🔄 Scheduler neu gestartet – Tagesplan wird neu erstellt.")
 
-        elif cmd in ("10", "shutdown", "beenden"):
-            self._dm.start(DS.SHUTDOWN_CONFIRM)
-            self._send(chat_id, "⚠️ *Programm wirklich beenden?*\n\n*ja* bestätigen, *0* abbrechen.")
-
-        elif cmd in ("11", "headless"):
+        elif cmd in ("7", "headless"):
             current = self._config._raw.get("settings", {}).get("headless", False)
             new_val = not current
             status = "unsichtbar (headless)" if new_val else "sichtbar (mit Fenster)"
@@ -217,7 +210,7 @@ class TelegramController:
                 f"Neu: `{status}`\n\n"
                 f"*ja* bestätigen, *0* abbrechen.")
 
-        elif cmd in ("12", "ping", "version", "info"):
+        elif cmd in ("ping", "version", "info"):
             self._send(chat_id, self._build_ping())
 
         else:
@@ -540,6 +533,7 @@ class TelegramController:
         try:
             add_cinema_to_config(self._config_path, new_cinema)
             self._config._raw["cinemas"].append(new_cinema)
+            self._app_state.mark_scheduler_restart()
             self._dm.reset()
             self._send(chat_id, f"✅ *{d['new_name']}* (`{d['new_id']}`) hinzugefügt.")
         except Exception as e:
@@ -672,11 +666,15 @@ class TelegramController:
     def _send(self, chat_id: str, text: str) -> None:
         """Sendet eine Markdown-Nachricht an den angegebenen Chat."""
         try:
-            self._session.post(
+            resp = self._session.post(
                 f"{self._base_url}/sendMessage",
                 json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
                 timeout=10,
             )
+            if not resp.ok:
+                logger.error(
+                    f"Telegram sendMessage fehlgeschlagen (HTTP {resp.status_code}): {resp.text[:200]}"
+                )
         except Exception as e:
             logger.warning(f"Fehler beim Senden an {chat_id}: {e}")
 
@@ -688,17 +686,12 @@ class TelegramController:
             f"Status: {paused} | Modus: {mode}\n\n"
             f"*Befehle:*\n"
             f"1 – Status aller Kinos\n"
-            f"2 – Diese Hilfe\n"
-            f"3 – Automatisierung pausieren\n"
-            f"4 – Automatisierung fortsetzen\n"
-            f"5 – Wartungsfenster ändern\n"
-            f"6 – Server konfigurieren\n"
-            f"7 – Zugangsdaten ändern\n"
-            f"8 – Sofort-Reboot auslösen\n"
-            f"9 – Scheduler neu starten\n"
-            f"10 – Programm beenden\n"
-            f"11 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n"
-            f"12 – Version & Laufzeit prüfen\n\n"
+            f"2 – Wartungsfenster ändern\n"
+            f"3 – Server konfigurieren\n"
+            f"4 – Zugangsdaten ändern\n"
+            f"5 – Sofort-Reboot auslösen\n"
+            f"6 – Scheduler neu starten\n"
+            f"7 – Browser {'sichtbar machen' if self._config._raw.get('settings', {}).get('headless', False) else 'unsichtbar machen'}\n\n"
             f"_0 oder /abbrechen = Dialog abbrechen_"
         )
 
@@ -756,7 +749,7 @@ class TelegramController:
             sched_str = sched.strftime("%H:%M") if sched else "?"
             done_mark = " ✓" if done else ""
             lines.append(
-                f"{icon} *{cinema['name']}* – {status}{done_mark} (Plan: {sched_str})"
+                f"{icon} *{cinema['name']}* – `{status}`{done_mark} (Plan: {sched_str})"
             )
         return "\n".join(lines)
 
