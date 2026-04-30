@@ -182,9 +182,11 @@ class StateManager:
 
             status = entry["status"]
 
-            # Laufenden Prozess nicht unterbrechen
+            # Laufenden Prozess nicht unterbrechen - aber nur wenn er HEUTE aktiv ist
             if status == Status.IN_PROGRESS:
-                return
+                last_attempt = entry.get("last_attempt_at", "")
+                if last_attempt and last_attempt[:10] == today:
+                    return
 
             # Heute bereits erfolgreich – nichts tun
             if status == Status.SUCCESS and entry.get("last_success_date") == today:

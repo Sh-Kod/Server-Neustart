@@ -121,6 +121,7 @@ class LampTelegramController(TelegramController):
         if chat_id in self._lamp_dlg:
             if text.strip().lower() in CANCEL_WORDS:
                 self._ld_reset(chat_id)
+                self._dm.reset()
                 self._send(chat_id, "❌ Abgebrochen.\n\n" + self._main_menu())
             else:
                 self._handle_lamp_dialog(chat_id, text)

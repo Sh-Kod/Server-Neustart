@@ -109,14 +109,19 @@ class TelegramController:
         while self._running:
             try:
                 updates = self._get_updates()
-                for update in updates:
-                    self._handle_update(update)
             except requests.exceptions.RequestException as e:
                 logger.warning(f"Telegram Verbindungsfehler: {e}")
                 time.sleep(10)
+                continue
             except Exception as e:
-                logger.error(f"Fehler im Telegram-Controller: {e}", exc_info=True)
+                logger.error(f"Fehler beim Abrufen von Updates: {e}", exc_info=True)
                 time.sleep(5)
+                continue
+            for update in updates:
+                try:
+                    self._handle_update(update)
+                except Exception as e:
+                    logger.error(f"Fehler bei Update-Verarbeitung: {e}", exc_info=True)
 
     def _get_updates(self) -> list:
         resp = self._session.get(
