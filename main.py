@@ -36,6 +36,29 @@ logger = logging.getLogger(__name__)
 # Globales Flag für sauberes Beenden (SIGINT/SIGTERM)
 _running = True
 
+# Datei-Handle für Einzelinstanz-Sperre (global, damit GC es nicht schließt)
+_instance_lock_fh = None
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Exklusive Lock-Datei-Sperre – verhindert Doppelstart (z.B. doppelter Klick auf start_hidden.vbs).
+    Gibt True zurück wenn die Sperre erhalten wurde, False wenn eine andere Instanz läuft."""
+    global _instance_lock_fh
+    lock_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cinema_reboot.lock")
+    try:
+        _instance_lock_fh = open(lock_path, "w")
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(_instance_lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(_instance_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _instance_lock_fh.write(str(os.getpid()))
+        _instance_lock_fh.flush()
+        return True
+    except OSError:
+        return False
+
 
 def handle_shutdown(sig, frame):
     global _running
@@ -496,6 +519,13 @@ def main():
     if args.test_lamps:
         cmd_test_lamps(config_path)
         return
+
+    # Einzelinstanz-Sperre – verhindert Doppelstart via start_hidden.vbs
+    is_daemon = not (args.status or args.run or args.test_projector or args.test_lamps)
+    if is_daemon and not _acquire_single_instance_lock():
+        print("[Cinema Reboot] Eine andere Instanz läuft bereits – beende.")
+        logger.warning("Zweite Instanz erkannt – wird sofort beendet.")
+        sys.exit(0)
 
     # Auto-Update prüfen – bei Änderung Prozess neu starten
     if check_and_update():

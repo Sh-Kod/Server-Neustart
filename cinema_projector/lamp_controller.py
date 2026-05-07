@@ -129,6 +129,13 @@ class LampTelegramController(TelegramController):
                 self._handle_lamp_dialog(chat_id, text)
             return
 
+        # Cancel-Wörter (0, /abbrechen, …) immer mit Hauptmenü-Tastatur beantworten
+        if text.strip().lower() in CANCEL_WORDS:
+            self._dm.reset()
+            self._send(chat_id, "❌ Abgebrochen.", None)
+            self._send_main_menu(chat_id)
+            return
+
         # Sonst: normales Reboot-Routing
         super()._handle_update(update)
 
