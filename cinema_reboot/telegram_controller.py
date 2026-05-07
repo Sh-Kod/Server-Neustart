@@ -62,6 +62,7 @@ class TelegramController:
         self._offset = 0
         self._session = requests.Session()
         self._base_url = f"https://api.telegram.org/bot{config.telegram_token}"
+        self._last_cb_msg_id: Optional[tuple] = None  # (chat_id, message_id)
 
     # ── Thread-Steuerung ──────────────────────────────────────────────────────
 
@@ -119,7 +120,10 @@ class TelegramController:
                 continue
             for update in updates:
                 try:
-                    self._handle_update(update)
+                    if "callback_query" in update:
+                        self._handle_callback_query(update["callback_query"])
+                    else:
+                        self._handle_update(update)
                 except Exception as e:
                     logger.error(f"Fehler bei Update-Verarbeitung: {e}", exc_info=True)
 
@@ -663,20 +667,68 @@ class TelegramController:
     # HILFSFUNKTIONEN
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _send(self, chat_id: str, text: str) -> None:
-        """Sendet eine Markdown-Nachricht an den angegebenen Chat."""
+    def _send(self, chat_id: str, text: str, keyboard: list = None) -> Optional[int]:
+        """Sendet eine Markdown-Nachricht, optional mit Inline-Tastatur.
+        Gibt die message_id zurück (für späteres Editieren)."""
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        if keyboard:
+            payload["reply_markup"] = {"inline_keyboard": keyboard}
         try:
             resp = self._session.post(
                 f"{self._base_url}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+                json=payload,
                 timeout=10,
             )
             if not resp.ok:
                 logger.error(
                     f"Telegram sendMessage fehlgeschlagen (HTTP {resp.status_code}): {resp.text[:200]}"
                 )
+                return None
+            return resp.json().get("result", {}).get("message_id")
         except Exception as e:
             logger.warning(f"Fehler beim Senden an {chat_id}: {e}")
+            return None
+
+    def _edit_message(self, chat_id: str, message_id: int, text: str, keyboard: list = None) -> None:
+        """Ersetzt den Inhalt einer bereits gesendeten Nachricht."""
+        payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "Markdown"}
+        if keyboard:
+            payload["reply_markup"] = {"inline_keyboard": keyboard}
+        try:
+            self._session.post(f"{self._base_url}/editMessageText", json=payload, timeout=10)
+        except Exception as e:
+            logger.warning(f"Fehler beim Editieren der Nachricht {message_id}: {e}")
+
+    def _answer_callback(self, callback_query_id: str, text: str = "") -> None:
+        """Bestätigt einen Inline-Button-Klick (Pflicht innerhalb 10s)."""
+        try:
+            self._session.post(
+                f"{self._base_url}/answerCallbackQuery",
+                json={"callback_query_id": callback_query_id, "text": text},
+                timeout=5,
+            )
+        except Exception as e:
+            logger.warning(f"Fehler bei answerCallbackQuery: {e}")
+
+    def _handle_callback_query(self, cq: dict) -> None:
+        """Verarbeitet Inline-Button-Klicks wie normale Textnachrichten."""
+        chat_id  = str(cq["message"]["chat"]["id"])
+        data     = cq.get("data", "").strip()
+        cb_id    = cq["id"]
+        msg_id   = cq["message"]["message_id"]
+
+        if not self._is_authorized(chat_id):
+            self._answer_callback(cb_id)
+            return
+
+        self._answer_callback(cb_id)
+
+        # message_id für optionales Editieren speichern
+        self._last_cb_msg_id = (chat_id, msg_id)
+
+        # Wie eine normale Textnachricht routen
+        fake_update = {"message": {"chat": {"id": chat_id}, "text": data}}
+        self._handle_update(fake_update)
 
     def _main_menu(self) -> str:
         paused = "⏸️ PAUSIERT" if self._app_state.paused else "▶️ AKTIV"

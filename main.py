@@ -293,7 +293,7 @@ def main_loop(
 
         # Sofort-Läufe via Telegram?
         pending = app_state.pop_pending_runs()
-        if pending:
+        if pending and app_state.reboot_enabled:
             cinemas_map = {c["id"]: c for c in config.cinemas}
             to_run = [cinemas_map[cid] for cid in pending if cid in cinemas_map]
             unknown = [cid for cid in pending if cid not in cinemas_map]
@@ -307,24 +307,27 @@ def main_loop(
                 else:
                     for cinema in to_run:
                         engine.run(cinema)
+        elif pending and not app_state.reboot_enabled:
+            logger.info("Sofort-Reboot ignoriert – Server-Neustart-Modul ist deaktiviert.")
 
         # Welche Kinos sind planmäßig dran?
-        due = scheduler.get_cinemas_due()
-        if due:
-            logger.info(f"Fällige Kinos: {[c['name'] for c in due]}")
-            if config.parallel_reboot and len(due) > 1:
-                engine.run_parallel(due)
+        if app_state.reboot_enabled:
+            due = scheduler.get_cinemas_due()
+            if due:
+                logger.info(f"Fällige Kinos: {[c['name'] for c in due]}")
+                if config.parallel_reboot and len(due) > 1:
+                    engine.run_parallel(due)
+                else:
+                    for cinema in due:
+                        if not _running or app_state.shutdown_requested:
+                            break
+                        logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
+                        engine.run(cinema)
             else:
-                for cinema in due:
-                    if not _running or app_state.shutdown_requested:
-                        break
-                    logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
-                    engine.run(cinema)
-        else:
-            if scheduler.in_maintenance_window():
-                logger.debug("Im Wartungsfenster, aber kein Kino fällig.")
-            else:
-                logger.debug("Außerhalb des Wartungsfensters – warte...")
+                if scheduler.in_maintenance_window():
+                    logger.debug("Im Wartungsfenster, aber kein Kino fällig.")
+                else:
+                    logger.debug("Außerhalb des Wartungsfensters – warte...")
 
         # ── "Alle Säle erledigt" Nachricht ───────────────────────────────────
         if not _all_done_reported and scheduler.in_maintenance_window():

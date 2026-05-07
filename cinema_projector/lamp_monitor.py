@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 class LampMonitor:
     def __init__(self, config: LampConfig):
-        self._config  = config
-        self._state   = LampState(config.state_file)
-        self._thread  = None
-        self._running = False
+        self._config   = config
+        self._state    = LampState(config.state_file)
+        self._thread   = None
+        self._running  = False
+        self._enabled  = True
 
     def start(self) -> None:
         self._running = True
@@ -40,15 +41,27 @@ class LampMonitor:
     def stop(self) -> None:
         self._running = False
 
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def set_enabled(self, v: bool) -> None:
+        self._enabled = v
+        logger.info(f"[LAMPE] Monitor {'aktiviert' if v else 'deaktiviert'}.")
+
     # ── interne Schleife ───────────────────────────────────────────────────────
 
     def _loop(self) -> None:
         while self._running:
+            time.sleep(60)  # jede Minute prüfen ob Prüfzeit erreicht
+            if not self._running:
+                break
+            if not self._enabled:
+                continue
             try:
                 self._tick()
             except Exception as e:
                 logger.exception(f"[LAMPE] Unerwarteter Fehler: {e}")
-            time.sleep(60)  # jede Minute prüfen ob Prüfzeit erreicht
 
     def _tick(self) -> None:
         tz  = pytz.timezone(self._config.timezone)

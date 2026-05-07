@@ -62,6 +62,7 @@ _HS_CTRL_CONFIRM    = "health_ctrl_confirm"
 _PS_MENU            = "prog_menu"
 _PS_RESTART_CONFIRM = "prog_restart_confirm"
 _PS_STOP_CONFIRM    = "prog_stop_confirm"
+_PS_MODULE_TOGGLE   = "prog_module_toggle"
 
 CANCEL_WORDS = {"0", "/abbrechen", "/cancel", "/stop", "/exit"}
 
@@ -122,7 +123,8 @@ class LampTelegramController(TelegramController):
             if text.strip().lower() in CANCEL_WORDS:
                 self._ld_reset(chat_id)
                 self._dm.reset()
-                self._send(chat_id, "❌ Abgebrochen.\n\n" + self._main_menu())
+                self._send(chat_id, "❌ Abgebrochen.", None)
+                self._send_main_menu(chat_id)
             else:
                 self._handle_lamp_dialog(chat_id, text)
             return
@@ -132,9 +134,11 @@ class LampTelegramController(TelegramController):
 
     def _handle_command(self, chat_id: str, text: str) -> None:
         cmd = text.lower().lstrip("/")
-        if cmd in ("1", "reboot", "server", "neustart"):
+        if cmd in ("start", "hilfe", "menu", "help"):
+            self._send_main_menu(chat_id)
+        elif cmd in ("1", "reboot", "server", "neustart"):
             self._ld_set(chat_id, _LS_REBOOT_SUBMENU)
-            self._send(chat_id, self._reboot_submenu_text())
+            self._send(chat_id, self._reboot_submenu_text(), self._reboot_submenu_keyboard())
         elif cmd in ("2", "lampen", "lampe", "lamp", "13"):
             self._open_lamp_menu(chat_id)
         elif cmd in ("3", "gesundheit", "health"):
@@ -151,45 +155,55 @@ class LampTelegramController(TelegramController):
         return (
             f"🎬 *Cinema Server Manager*\n"
             f"Status: {paused} | Modus: {mode}\n\n"
-            f"*Bereich wählen:*\n"
-            f"1 – 🔄 Server-Neustart\n"
-            f"2 – 🔦 Lampen-Monitor\n"
-            f"3 – 💚 Projektor-Gesundheit\n"
-            f"4 – ⚙️ Programm\n\n"
-            f"_0 oder /abbrechen = Abbrechen_"
+            f"*Bereich wählen:*"
         )
+
+    def _main_menu_keyboard(self) -> list:
+        return [
+            [{"text": "🔄 Server-Neustart", "callback_data": "1"}],
+            [{"text": "🔦 Lampen-Monitor",  "callback_data": "2"}],
+            [{"text": "💚 Projektor-Gesundheit", "callback_data": "3"}],
+            [{"text": "⚙️ Programm",        "callback_data": "4"}],
+        ]
+
+    def _send_main_menu(self, chat_id: str) -> None:
+        self._send(chat_id, self._main_menu(), self._main_menu_keyboard())
 
     def _reboot_submenu_text(self) -> str:
         paused = "⏸️ pausiert" if self._app_state.paused else "▶️ läuft"
         mode   = "⚠️ DRY-RUN"  if self._config.dry_run   else "✅ LIVE"
-        return (
-            f"🔄 *Server-Neustart*  ({paused} | {mode})\n\n"
-            f"1 – Status aller Kinos\n"
-            f"2 – Wartungsfenster ändern\n"
-            f"3 – Server konfigurieren\n"
-            f"4 – Zugangsdaten ändern\n"
-            f"5 – Sofort-Reboot auslösen\n"
-            f"6 – Scheduler neu starten\n"
-            f"7 – Browser-Modus umschalten\n\n"
-            f"_0 = ← Hauptmenü_"
-        )
+        return f"🔄 *Server-Neustart*  ({paused} | {mode})"
+
+    def _reboot_submenu_keyboard(self) -> list:
+        return [
+            [{"text": "📊 Status aller Kinos",        "callback_data": "1"}],
+            [{"text": "🕐 Wartungsfenster ändern",    "callback_data": "2"}],
+            [{"text": "🖥️ Server konfigurieren",      "callback_data": "3"}],
+            [{"text": "🔑 Zugangsdaten ändern",       "callback_data": "4"}],
+            [{"text": "⚡ Sofort-Reboot auslösen",    "callback_data": "5"}],
+            [{"text": "🔄 Scheduler neu starten",     "callback_data": "6"}],
+            [{"text": "🖥️ Browser-Modus umschalten",  "callback_data": "7"}],
+            [{"text": "◀️ Hauptmenü",                 "callback_data": "0"}],
+        ]
 
     # ── Lampen-Menü ───────────────────────────────────────────────────────────
 
     def _open_lamp_menu(self, chat_id: str) -> None:
         self._ld_set(chat_id, _LS_MENU)
-        self._send(chat_id, self._lamp_menu_text())
+        self._send(chat_id, self._lamp_menu_text(), self._lamp_menu_keyboard())
 
     def _lamp_menu_text(self) -> str:
-        return (
-            "🔦 *Lampen-Monitor*\n\n"
-            "1 – Alle Projektoren sofort prüfen\n"
-            "2 – Einzelner Kino-Check\n"
-            "3 – Prüfzeit ändern\n"
-            "4 – Projektor-IP bearbeiten\n"
-            "5 – Status (letzter Check)\n\n"
-            "_0 = Zurück zum Hauptmenü_"
-        )
+        return "🔦 *Lampen-Monitor*"
+
+    def _lamp_menu_keyboard(self) -> list:
+        return [
+            [{"text": "🔍 Alle sofort prüfen",       "callback_data": "1"}],
+            [{"text": "🔎 Einzelner Kino-Check",      "callback_data": "2"}],
+            [{"text": "🕐 Prüfzeit ändern",           "callback_data": "3"}],
+            [{"text": "🔧 Projektor-IP bearbeiten",   "callback_data": "4"}],
+            [{"text": "📊 Status (letzter Check)",    "callback_data": "5"}],
+            [{"text": "◀️ Hauptmenü",                 "callback_data": "0"}],
+        ]
 
     def _handle_lamp_dialog(self, chat_id: str, text: str) -> None:
         state = self._ld_state(chat_id)
@@ -214,6 +228,7 @@ class LampTelegramController(TelegramController):
             _PS_MENU:            self._dlg_prog_menu,
             _PS_RESTART_CONFIRM: self._dlg_prog_restart_confirm,
             _PS_STOP_CONFIRM:    self._dlg_prog_stop_confirm,
+            _PS_MODULE_TOGGLE:   self._dlg_module_toggle,
         }
         handler = dispatch.get(state)
         if handler:
@@ -226,6 +241,10 @@ class LampTelegramController(TelegramController):
 
     def _dlg_reboot_submenu(self, chat_id: str, text: str) -> None:
         """Leitet Auswahl im Reboot-Untermenü weiter."""
+        if text.strip() == "0":
+            self._ld_reset(chat_id)
+            self._send_main_menu(chat_id)
+            return
         self._ld_reset(chat_id)
         super()._handle_command(chat_id, text)
 
@@ -285,7 +304,11 @@ class LampTelegramController(TelegramController):
 
     def _dlg_lamp_menu(self, chat_id: str, text: str) -> None:
         t = text.strip()
-        if t == "1":
+        if t == "0":
+            self._ld_reset(chat_id)
+            self._send_main_menu(chat_id)
+            return
+        elif t == "1":
             self._ld_reset(chat_id)
             self._send(chat_id, "🔄 Prüfe alle Projektoren... (kann einige Sekunden dauern)")
             threading.Thread(
@@ -321,7 +344,7 @@ class LampTelegramController(TelegramController):
             self._ld_reset(chat_id)
             self._send(chat_id, self._build_lamp_status())
         else:
-            self._send(chat_id, "Bitte 1–5 eingeben.\n\n" + self._lamp_menu_text())
+            self._send(chat_id, self._lamp_menu_text(), self._lamp_menu_keyboard())
 
     def _run_check_all(self, chat_id: str) -> None:
         try:
@@ -567,24 +590,29 @@ class LampTelegramController(TelegramController):
                 "_(0 = Zurück)_")
             return
         self._ld_set(chat_id, _HS_MENU)
-        self._send(chat_id, self._health_menu_text())
+        self._send(chat_id, self._health_menu_text(), self._health_menu_keyboard())
 
     def _health_menu_text(self) -> str:
-        return (
-            "💚 *Projektor-Gesundheit*\n\n"
-            "1 – Übersicht (letzter bekannter Status)\n"
-            "2 – Sofort alle prüfen\n"
-            "3 – Einzelner Projektor-Check\n"
-            "4 – 🌡️ Temperatur-Schwellwert ändern\n"
-            "5 – 🎛️ Projektor steuern\n"
-            "6 – 🌡️ Temperatur-Übersicht\n\n"
-            "💚 OK  🔵 Meldung  🟡 Warnung  🔴 Fehler  ⬛ Offline\n\n"
-            "_0 = Zurück zum Hauptmenü_"
-        )
+        return "💚 *Projektor-Gesundheit*\n💚 OK  🔵 Meldung  🟡 Warnung  🔴 Fehler  ⬛ Offline"
+
+    def _health_menu_keyboard(self) -> list:
+        return [
+            [{"text": "📋 Übersicht (letzter Status)",      "callback_data": "1"}],
+            [{"text": "🔄 Sofort alle prüfen",              "callback_data": "2"}],
+            [{"text": "🔎 Einzelner Projektor-Check",       "callback_data": "3"}],
+            [{"text": "🌡️ Temperatur-Schwellwert ändern",   "callback_data": "4"}],
+            [{"text": "🎛️ Projektor steuern",               "callback_data": "5"}],
+            [{"text": "🌡️ Temperatur-Übersicht",            "callback_data": "6"}],
+            [{"text": "◀️ Hauptmenü",                       "callback_data": "0"}],
+        ]
 
     def _dlg_health_menu(self, chat_id: str, text: str) -> None:
         t = text.strip()
-        if t == "1":
+        if t == "0":
+            self._ld_reset(chat_id)
+            self._send_main_menu(chat_id)
+            return
+        elif t == "1":
             self._ld_reset(chat_id)
             self._send(chat_id, self._build_health_overview())
         elif t == "2":
@@ -613,7 +641,7 @@ class LampTelegramController(TelegramController):
             self._ld_reset(chat_id)
             self._send(chat_id, self._build_temp_overview())
         else:
-            self._send(chat_id, "Bitte 1–6 eingeben.\n\n" + self._health_menu_text())
+            self._send(chat_id, self._health_menu_text(), self._health_menu_keyboard())
 
     def _build_health_overview(self) -> str:
         """Übersicht aller Projektor-Zustände aus dem letzten bekannten State."""
@@ -1063,8 +1091,6 @@ class LampTelegramController(TelegramController):
             if restarted else
             "🚀 *Programm gestartet!*\n\n"
         )
-        msg = header + self._main_menu()
-
         # An Haupt-Chat-ID senden
         all_chats = [self._config.telegram_chat_id]
         for cid in self._config.telegram_admin_chat_ids:
@@ -1073,35 +1099,37 @@ class LampTelegramController(TelegramController):
 
         for chat_id in all_chats:
             try:
-                self._send(chat_id, msg)
+                self._send(chat_id, header, None)
+                self._send_main_menu(chat_id)
             except Exception as e:
                 logger.warning(f"[STARTUP] Benachrichtigung an {chat_id} fehlgeschlagen: {e}")
 
     def _open_prog_menu(self, chat_id: str) -> None:
         self._ld_set(chat_id, _PS_MENU)
-        self._send(chat_id, self._prog_menu_text())
+        self._send(chat_id, self._prog_menu_text(), self._prog_menu_keyboard())
 
     def _prog_menu_text(self) -> str:
+        status = "⏸️ PAUSIERT" if self._app_state.paused else "▶️ AKTIV"
+        return f"⚙️ *Programm-Steuerung*\nStatus: {status}"
+
+    def _prog_menu_keyboard(self) -> list:
         paused = self._app_state.paused
-        pause_line = (
-            "1 – ▶️ Monitoring fortsetzen"
-            if paused else
-            "1 – ⏸️ Monitoring pausieren"
-        )
-        status = "⏸️ PAUSIERT" if paused else "▶️ AKTIV"
-        return (
-            f"⚙️ *Programm-Steuerung*\n"
-            f"Status: {status}\n\n"
-            f"{pause_line}\n"
-            f"2 – 🔄 Programm neu starten\n"
-            f"3 – 🛑 Programm beenden\n"
-            f"4 – 📊 Version & Laufzeit\n\n"
-            f"_0 = Zurück_"
-        )
+        pause_btn = "▶️ Monitoring fortsetzen" if paused else "⏸️ Monitoring pausieren"
+        return [
+            [{"text": pause_btn,                    "callback_data": "1"}],
+            [{"text": "🔄 Programm neu starten",    "callback_data": "2"}],
+            [{"text": "🛑 Programm beenden",        "callback_data": "3"}],
+            [{"text": "📊 Version & Laufzeit",      "callback_data": "4"}],
+            [{"text": "🔀 Module Ein/Aus",          "callback_data": "5"}],
+            [{"text": "◀️ Hauptmenü",               "callback_data": "0"}],
+        ]
 
     def _dlg_prog_menu(self, chat_id: str, text: str) -> None:
         t = text.strip()
-        if t == "1":
+        if t == "0":
+            self._ld_reset(chat_id)
+            self._send_main_menu(chat_id)
+        elif t == "1":
             if self._app_state.paused:
                 self._app_state.resume()
                 self._ld_reset(chat_id)
@@ -1109,29 +1137,35 @@ class LampTelegramController(TelegramController):
             else:
                 self._app_state.pause()
                 self._ld_reset(chat_id)
-                self._send(chat_id, "⏸️ Monitoring *pausiert*.\n\nMit Option 1 wieder fortsetzen.")
+                self._send(chat_id, "⏸️ Monitoring *pausiert*.")
         elif t == "2":
             self._ld_next(chat_id, _PS_RESTART_CONFIRM)
             self._send(chat_id,
                 "🔄 *Programm wirklich neu starten?*\n\n"
-                "Das Programm stoppt kurz und startet sich selbst neu.\n\n"
-                "*ja* bestätigen, *0* abbrechen.")
+                "Das Programm stoppt kurz und startet sich selbst neu.",
+                [[{"text": "✅ Ja, neu starten", "callback_data": "ja"},
+                  {"text": "❌ Abbrechen",        "callback_data": "0"}]])
         elif t == "3":
             self._ld_next(chat_id, _PS_STOP_CONFIRM)
             self._send(chat_id,
                 "🛑 *Programm wirklich beenden?*\n\n"
-                "Das Programm stoppt vollständig. Manueller Neustart nötig.\n\n"
-                "*ja* bestätigen, *0* abbrechen.")
+                "Das Programm stoppt vollständig. Manueller Neustart nötig.",
+                [[{"text": "✅ Ja, beenden", "callback_data": "ja"},
+                  {"text": "❌ Abbrechen",   "callback_data": "0"}]])
         elif t == "4":
             self._ld_reset(chat_id)
             self._send(chat_id, self._build_ping())
+        elif t == "5":
+            self._ld_next(chat_id, _PS_MODULE_TOGGLE)
+            self._send(chat_id, self._module_status_text(), self._module_keyboard())
         else:
-            self._send(chat_id, "Bitte 1–4 eingeben.\n\n" + self._prog_menu_text())
+            self._send(chat_id, self._prog_menu_text(), self._prog_menu_keyboard())
 
     def _dlg_prog_restart_confirm(self, chat_id: str, text: str) -> None:
         if text.lower() not in ("ja", "yes", "j", "y"):
             self._ld_reset(chat_id)
             self._send(chat_id, "❌ Abgebrochen.")
+            self._send_main_menu(chat_id)
             return
         self._ld_reset(chat_id)
         self._send(chat_id, "🔄 Programm wird neu gestartet...")
@@ -1149,7 +1183,64 @@ class LampTelegramController(TelegramController):
         if text.lower() not in ("ja", "yes", "j", "y"):
             self._ld_reset(chat_id)
             self._send(chat_id, "❌ Abgebrochen.")
+            self._send_main_menu(chat_id)
             return
         self._ld_reset(chat_id)
         self._send(chat_id, "🛑 Programm wird beendet...")
         self._app_state.request_shutdown()
+
+    # ── Modul Ein/Aus ─────────────────────────────────────────────────────────
+
+    def _module_status_text(self) -> str:
+        r = "✅ AN" if self._app_state.reboot_enabled          else "⏹️ AUS"
+        l = "✅ AN" if (self._lamp   and self._lamp.enabled)   else "⏹️ AUS"
+        h = "✅ AN" if (self._health and self._health.enabled) else "⏹️ AUS"
+        return (
+            f"🔀 *Module Ein/Aus*\n\n"
+            f"🔄 Server-Neustart:      {r}\n"
+            f"🔦 Lampen-Monitor:       {l}\n"
+            f"💚 Projektor-Gesundheit: {h}"
+        )
+
+    def _module_keyboard(self) -> list:
+        r_on  = self._app_state.reboot_enabled
+        l_on  = bool(self._lamp   and self._lamp.enabled)
+        h_on  = bool(self._health and self._health.enabled)
+        return [
+            [
+                {"text": "🔄 Reboot AN"  + (" ✓" if r_on  else ""), "callback_data": "mod_reboot_on"},
+                {"text": "🔄 Reboot AUS" + (" ✓" if not r_on else ""), "callback_data": "mod_reboot_off"},
+            ],
+            [
+                {"text": "🔦 Lampe AN"  + (" ✓" if l_on  else ""), "callback_data": "mod_lamp_on"},
+                {"text": "🔦 Lampe AUS" + (" ✓" if not l_on else ""), "callback_data": "mod_lamp_off"},
+            ],
+            [
+                {"text": "💚 Health AN"  + (" ✓" if h_on  else ""), "callback_data": "mod_health_on"},
+                {"text": "💚 Health AUS" + (" ✓" if not h_on else ""), "callback_data": "mod_health_off"},
+            ],
+            [{"text": "◀️ Programm-Menü", "callback_data": "0"}],
+        ]
+
+    def _dlg_module_toggle(self, chat_id: str, text: str) -> None:
+        t = text.strip().lower()
+        if t == "0":
+            self._ld_reset(chat_id)
+            self._open_prog_menu(chat_id)
+            return
+
+        if t == "mod_reboot_on":
+            self._app_state.set_reboot_enabled(True)
+        elif t == "mod_reboot_off":
+            self._app_state.set_reboot_enabled(False)
+        elif t == "mod_lamp_on" and self._lamp:
+            self._lamp.set_enabled(True)
+        elif t == "mod_lamp_off" and self._lamp:
+            self._lamp.set_enabled(False)
+        elif t == "mod_health_on" and self._health:
+            self._health.set_enabled(True)
+        elif t == "mod_health_off" and self._health:
+            self._health.set_enabled(False)
+
+        # Menü mit aktuellem Zustand neu senden (Tastatur aktualisiert)
+        self._send(chat_id, self._module_status_text(), self._module_keyboard())
