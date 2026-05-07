@@ -150,6 +150,11 @@ class Scheduler:
         if self._state.get_status(cinema_id) == Status.IN_PROGRESS:
             return False
 
+        # Bereits geblockt (Playback/Transfer) ohne geplanten Retry → heute nicht mehr versuchen
+        if self._state.get_status(cinema_id) in (Status.BLOCKED_BY_PLAYBACK, Status.BLOCKED_BY_TRANSFER):
+            if self._state.get_next_retry_time(cinema_id) is None:
+                return False
+
         # Aktiver Retry vorhanden?
         next_retry = self._state.get_next_retry_time(cinema_id)
         if next_retry is not None:
