@@ -121,6 +121,7 @@ class HealthMonitor:
             if not self._running:
                 break
             if not self._enabled:
+                logger.debug("[GESUNDHEIT] Monitor pausiert – kein Check.")
                 continue
             try:
                 self._tick()

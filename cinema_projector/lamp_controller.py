@@ -1198,7 +1198,7 @@ class LampTelegramController(TelegramController):
         return (
             f"🔀 *Module Ein/Aus*\n\n"
             f"🔄 Server-Neustart:      {r}\n"
-            f"🔦 Lampen-Monitor:       {l}\n"
+            f"🔦 Kolben-Laufzeit:      {l}\n"
             f"💚 Projektor-Gesundheit: {h}"
         )
 
@@ -1208,12 +1208,12 @@ class LampTelegramController(TelegramController):
         h_on  = bool(self._health and self._health.enabled)
         return [
             [
-                {"text": "🔄 Reboot AN"  + (" ✓" if r_on  else ""), "callback_data": "mod_reboot_on"},
-                {"text": "🔄 Reboot AUS" + (" ✓" if not r_on else ""), "callback_data": "mod_reboot_off"},
+                {"text": "🔄 Reboot AN"   + (" ✓" if r_on      else ""), "callback_data": "mod_reboot_on"},
+                {"text": "🔄 Reboot AUS"  + (" ✓" if not r_on  else ""), "callback_data": "mod_reboot_off"},
             ],
             [
-                {"text": "🔦 Lampe AN"  + (" ✓" if l_on  else ""), "callback_data": "mod_lamp_on"},
-                {"text": "🔦 Lampe AUS" + (" ✓" if not l_on else ""), "callback_data": "mod_lamp_off"},
+                {"text": "🔦 Laufzeit AN"  + (" ✓" if l_on     else ""), "callback_data": "mod_lamp_on"},
+                {"text": "🔦 Laufzeit AUS" + (" ✓" if not l_on else ""), "callback_data": "mod_lamp_off"},
             ],
             [
                 {"text": "💚 Health AN"  + (" ✓" if h_on  else ""), "callback_data": "mod_health_on"},
