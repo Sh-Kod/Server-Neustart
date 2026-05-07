@@ -197,6 +197,29 @@ class Scheduler:
             from_time = self._now()
         return from_time + timedelta(minutes=self._config.retry_interval_minutes)
 
+    def smart_next_retry_time(self) -> Optional[datetime]:
+        """Bestimmt den nächsten Retry-Zeitpunkt mit adaptivem Intervall.
+
+        In der letzten Stunde des Wartungsfensters wird das kurze Intervall
+        (short_retry_interval_minutes, Standard 15 Min) verwendet, damit der
+        Reboot noch vor Fensterende versucht werden kann.
+        Außerhalb dieser Zeitspanne gilt das normale retry_interval_minutes.
+        Liegt die berechnete Retry-Zeit außerhalb des Fensters → None (kein Retry).
+        """
+        now = self._now()
+        window_end = self.get_window_end()
+        remaining_min = (window_end - now).total_seconds() / 60
+
+        if remaining_min <= self._config.short_retry_threshold_minutes:
+            interval = self._config.short_retry_interval_minutes
+        else:
+            interval = self._config.retry_interval_minutes
+
+        candidate = now + timedelta(minutes=interval)
+        if not self.is_within_window(candidate):
+            return None
+        return candidate
+
     def is_within_window(self, dt: datetime) -> bool:
         """Prüft, ob ein Zeitpunkt innerhalb der Wartungsfenster-Uhrzeit liegt.
         Kein Wochentag-Check – gilt auch für Retries außerhalb des geplanten Tages."""

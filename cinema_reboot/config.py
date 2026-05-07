@@ -117,6 +117,16 @@ class Config:
         return int(self._raw["settings"].get("retry_interval_minutes", 60))
 
     @property
+    def short_retry_interval_minutes(self) -> int:
+        """Retry-Intervall (Minuten) in der letzten Stunde des Wartungsfensters."""
+        return int(self._raw["settings"].get("short_retry_interval_minutes", 15))
+
+    @property
+    def short_retry_threshold_minutes(self) -> int:
+        """Ab wie vielen verbleibenden Fenster-Minuten das kurze Intervall greift."""
+        return int(self._raw["settings"].get("short_retry_threshold_minutes", 60))
+
+    @property
     def group_size(self) -> int:
         """Anzahl Kinos pro Startgruppe (Gruppen-Reboot)."""
         return int(self._raw["settings"].get("group_size", 4))
