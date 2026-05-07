@@ -13,6 +13,7 @@ import argparse
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 
@@ -36,41 +37,38 @@ logger = logging.getLogger(__name__)
 # Globales Flag für sauberes Beenden (SIGINT/SIGTERM)
 _running = True
 
-# Handles für Einzelinstanz-Sperre (global, damit GC sie nicht schließt)
-_instance_lock_fh = None
-_win32_mutex = None
+# Socket-Handle für Einzelinstanz-Sperre (global, damit GC ihn nicht schließt)
+_lock_socket = None
+
+# Port für die Einzel-Instanz-Sperre (lokal, nur 127.0.0.1)
+_LOCK_PORT = 47392
 
 
 def _acquire_single_instance_lock() -> bool:
-    """Verhindert Doppelstart.
-    Windows: Named Mutex (zuverlässig auch bei os.execv()-Neustarts).
-    Linux:   fcntl-Dateisperre.
-    Gibt True zurück wenn diese Instanz die Sperre hält, sonst False."""
-    global _instance_lock_fh, _win32_mutex
-
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            # Named Mutex – automatisch freigegeben wenn Prozess endet
-            _win32_mutex = kernel32.CreateMutexW(None, True, "Global\\CinemaRebootSingleInstance")
-            last_err = kernel32.GetLastError()
-            if last_err == 183:  # ERROR_ALREADY_EXISTS – andere Instanz läuft
-                return False
-            return bool(_win32_mutex)
-        except Exception:
-            pass  # Fallback auf Datei-Lock
-
-    lock_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cinema_reboot.lock")
+    """Verhindert Doppelstart via TCP-Socket-Bindung auf 127.0.0.1.
+    Gibt True zurück wenn diese Instanz die Sperre hält, sonst False.
+    Der Socket wird automatisch freigegeben wenn der Prozess endet."""
+    global _lock_socket
     try:
-        _instance_lock_fh = open(lock_path, "w")
-        import fcntl
-        fcntl.flock(_instance_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _instance_lock_fh.write(str(os.getpid()))
-        _instance_lock_fh.flush()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", _LOCK_PORT))
+        sock.listen(1)
+        _lock_socket = sock  # Global halten damit GC ihn nicht schließt
         return True
     except OSError:
         return False
+
+
+def _release_single_instance_lock() -> None:
+    """Gibt die Sperre explizit frei – muss vor os.execv() aufgerufen werden,
+    damit der neu gestartete Prozess die Sperre übernehmen kann."""
+    global _lock_socket
+    if _lock_socket is not None:
+        try:
+            _lock_socket.close()
+        except Exception:
+            pass
+        _lock_socket = None
 
 
 def handle_shutdown(sig, frame):
@@ -542,6 +540,7 @@ def main():
 
     # Auto-Update prüfen – bei Änderung Prozess neu starten
     if check_and_update():
+        _release_single_instance_lock()  # Sperre freigeben bevor neuer Prozess startet
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
     # Telegram-Controller starten (falls aktiviert)
@@ -589,6 +588,7 @@ def main():
     # Neustart nach Hintergrund-Update
     if app_state.update_available:
         logger.info("Starte Programm nach Update neu...")
+        _release_single_instance_lock()  # Sperre freigeben bevor neuer Prozess startet
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
