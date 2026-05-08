@@ -58,7 +58,13 @@ Kein automatisches Test-Framework vorhanden. Tests erfolgen manuell via `--dry-r
 - **Status-Lifecycle**: `idle` → `in_progress` → `success` / `error` / `blocked_*` / `offline` / `ui_unclear`. `reset_for_new_day()` setzt täglich zurück — schützt aber laufende Prozesse desselben Tages via `last_attempt_at[:10] == today`.
 - **Auto-Updater**: Background-Thread prüft alle 30s auf neue Git-Commits. Bei Update → `app_state.signal_update()` → `shutdown_requested=True` → `_release_single_instance_lock()` → `os.execv()` Neustart. Startup prüft ebenfalls mit `check_and_update()`.
 - **Einzelinstanz-Lock**: TCP-Socket-Bindung auf `127.0.0.1:47392` in `_acquire_single_instance_lock()`. Muss vor `os.execv()` explizit freigegeben werden (`_release_single_instance_lock()`), damit der Neustart-Prozess die Sperre übernehmen kann.
-- **Bekanntes Problem – Doppelinstanz**: 1 VBS-Klick erzeugt trotz Lock 2 Python-Instanzen. Root Cause ungeklärt (vermutlich simultane Auto-Update-Neustarts). Risiken: Race-Condition beim Reboot, Telegram-Split, state.json-Konflikte.
+- **Bekanntes Problem – Doppelinstanz**: 1 VBS-Klick erzeugt trotz Lock 2 Python-Instanzen. Root Cause ungeklärt. **WICHTIG: Nicht nochmal dieselben Ansätze probieren** — alle drei wurden bereits versucht und scheiterten:
+  - `msvcrt.locking()`: Handle wird bei `os.execv()` vererbt → neuer Prozess kann dieselbe Byte-Region erneut sperren
+  - Named Mutex via `ctypes.windll.kernel32.CreateMutexW`: `GetLastError()` nach dem ctypes-Aufruf ist unzuverlässig — Python-interne Aufrufe zwischen `CreateMutexW` und `GetLastError` können den Fehlerwert 183 (ERROR_ALREADY_EXISTS) überschreiben → zweite Instanz denkt irrtümlich sie ist erste
+  - TCP-Socket `socket.bind(("127.0.0.1", 47392))`: ebenfalls implementiert + `_release_single_instance_lock()` vor `os.execv()` — verhindert manuelle Doppelklicks korrekt, aber nicht die 2. Instanz beim allerersten Start
+  - Ausgeschlossen: Windows Autostart-Ordner (leer), Task Scheduler (kein Eintrag), VBS-Inhalt (nur ein Run-Aufruf)
+  - Risiken: Race-Condition beim Reboot (~1s Fenster), Telegram-Antworten auf zufällige Instanz, state.json-Schreibkonflikte
+  - **Nächster Schritt**: `wmic process where "name='python.exe'" get ProcessId,ParentProcessId,CommandLine` — zeigt welcher Elternprozess die 2. Instanz startet. Oder Sysinternals Process Monitor.
 - **Adaptives Retry-Intervall**: `scheduler.smart_next_retry_time()` — normales Intervall (60 Min) außerhalb der letzten Stunde, kurzes Intervall (15 Min) in der letzten Stunde des Wartungsfensters. Konfigurierbar via `short_retry_interval_minutes` / `short_retry_threshold_minutes`.
 - **Pending-Runs (manuelle Sofortläufe)**: `app_state.request_run(cinema_id)` → nächster Loop-Zyklus verarbeitet via `engine.run()` ohne weitere Checks.
 - **Parallelisierung**: Optional via `parallel_reboot: true` in config; nutzt `engine.run_parallel()`.
