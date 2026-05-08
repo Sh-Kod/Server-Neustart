@@ -54,9 +54,12 @@ Kein automatisches Test-Framework vorhanden. Tests erfolgen manuell via `--dry-r
 ## Architektur- und Design-Entscheidungen
 
 - **Zwei Telegram-Dialog-Systeme**: `_lamp_dlg` (dict pro Chat, Lampe/Health/Programm) und `_dm` (DialogManager global, Reboot-Untermenüs). Beide müssen beim Cancel/Reset zurückgesetzt werden.
-- **State-Persistenz**: `state_manager.py` schreibt nach jeder Änderung in `state.json`. Alle Methoden sind Lock-geschützt.
+- **State-Persistenz**: `state_manager.py` schreibt nach jeder Änderung in `state.json`. Alle Methoden sind Lock-geschützt (nur innerhalb eines Prozesses — kein Cross-Process-Lock).
 - **Status-Lifecycle**: `idle` → `in_progress` → `success` / `error` / `blocked_*` / `offline` / `ui_unclear`. `reset_for_new_day()` setzt täglich zurück — schützt aber laufende Prozesse desselben Tages via `last_attempt_at[:10] == today`.
-- **Auto-Updater**: Background-Thread prüft alle 30s auf neue Git-Commits. Bei Update → `app_state.signal_update()` → `shutdown_requested=True` → `os.execv()` Neustart. Startup prüft ebenfalls mit `check_and_update()`.
+- **Auto-Updater**: Background-Thread prüft alle 30s auf neue Git-Commits. Bei Update → `app_state.signal_update()` → `shutdown_requested=True` → `_release_single_instance_lock()` → `os.execv()` Neustart. Startup prüft ebenfalls mit `check_and_update()`.
+- **Einzelinstanz-Lock**: TCP-Socket-Bindung auf `127.0.0.1:47392` in `_acquire_single_instance_lock()`. Muss vor `os.execv()` explizit freigegeben werden (`_release_single_instance_lock()`), damit der Neustart-Prozess die Sperre übernehmen kann.
+- **Bekanntes Problem – Doppelinstanz**: 1 VBS-Klick erzeugt trotz Lock 2 Python-Instanzen. Root Cause ungeklärt (vermutlich simultane Auto-Update-Neustarts). Risiken: Race-Condition beim Reboot, Telegram-Split, state.json-Konflikte.
+- **Adaptives Retry-Intervall**: `scheduler.smart_next_retry_time()` — normales Intervall (60 Min) außerhalb der letzten Stunde, kurzes Intervall (15 Min) in der letzten Stunde des Wartungsfensters. Konfigurierbar via `short_retry_interval_minutes` / `short_retry_threshold_minutes`.
 - **Pending-Runs (manuelle Sofortläufe)**: `app_state.request_run(cinema_id)` → nächster Loop-Zyklus verarbeitet via `engine.run()` ohne weitere Checks.
 - **Parallelisierung**: Optional via `parallel_reboot: true` in config; nutzt `engine.run_parallel()`.
 
@@ -69,6 +72,7 @@ Kein automatisches Test-Framework vorhanden. Tests erfolgen manuell via `--dry-r
 - `config.yaml` niemals committen (enthält Passwörter/IPs).
 - Exception-Handler in `_run_loop` immer per-Update (nicht per-Batch) — sonst fallen ganze Batches aus.
 - Beim Cancel im Telegram-Handler immer BEIDE Dialog-Systeme zurücksetzen: `_ld_reset(chat_id)` UND `_dm.reset()`.
+- `_release_single_instance_lock()` immer vor `os.execv()` aufrufen — sonst kann der neue Prozess die Sperre nicht übernehmen.
 
 ## Typische Workflows
 
@@ -89,3 +93,10 @@ State-JSON direkt editieren (`state.json`, Pfad in config.yaml unter `state_file
 1. Programm neu starten (`Ctrl+C` + `python main.py`)
 2. Logs auf Exception-Muster prüfen
 3. Sicherstellen dass `_run_loop`-Exception-Handler per-Update greift (nicht per-Batch)
+
+### Git pull schlägt fehl (Permission denied auf .git/FETCH_HEAD)
+Tritt auf wenn git-Operationen von unterschiedlichen Windows-Nutzern gestartet wurden:
+```
+takeown /f ".git" /r /d j
+icacls ".git" /grant "Projektion:(OI)(CI)F" /T
+```
