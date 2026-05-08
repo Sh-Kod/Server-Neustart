@@ -10,7 +10,7 @@
 - **Kino 05 `in_progress` erklärt**: Reboot-Befehl wurde um 06:53 gesendet, aber das Programm wurde während Schritt 4 (Warte auf Wiederherstellung) durch ein Auto-Update neugestartet → `set_success()` nie aufgerufen. Physisch läuft der Server korrekt.
 - **Bug 4 behoben**: Retry-jede-Minute-Bug in `scheduler.py` — wenn ein Kino durch Playback/Transfer blockiert war und die Retry-Zeit außerhalb des Wartungsfensters lag (`next_retry=None`), fiel `is_due()` in den Planungs-Modus und gab jeden Loop-Zyklus (60s) `True` zurück → versuchte jede Minute zu rebooten. Fix: explizite Prüfung auf `BLOCKED_BY_PLAYBACK`/`BLOCKED_BY_TRANSFER` ohne Retry → sofort `False`.
 - **Feature**: Adaptives Retry-Intervall in der letzten Stunde des Wartungsfensters (commit 1abf4b2) — in den letzten 60 Minuten wird alle 15 Minuten statt alle 60 Minuten versucht. Konfigurierbar via `short_retry_interval_minutes` (Standard 15) und `short_retry_threshold_minutes` (Standard 60) in config.yaml.
-- **Einzelinstanz-Lock versucht** (Commits 510dfb3, 7ce4bc5): Named Mutex via ctypes, dann TCP-Socket auf Port 47392 — beide Ansätze greifen technisch, lösen aber das Doppelinstanz-Problem nicht vollständig (Root Cause ungeklärt).
+- **Einzelinstanz-Lock versucht** (Commits 510dfb3, 7ce4bc5): Named Mutex via ctypes, dann TCP-Socket auf Port 47392 — beide Ansätze greifen technisch, lösen aber das Doppelinstanz-Problem nicht vollständig (Root Cause ungeklärt). Siehe ausführliche Analyse unten.
 
 ## Geänderte Dateien (gesamt)
 
@@ -24,11 +24,62 @@
 - `CLAUDE.md` — aktualisiert
 - `CONTEXT.md` — diese Datei
 
+## Doppelinstanz-Problem – vollständige Analyse (ungeklärt)
+
+### Symptom
+Ein einziger Klick auf `start_hidden.vbs` erzeugt stets **2 Python-Instanzen** (`python main.py`). Mehrere weitere Klicks auf die VBS erzeugen keine weiteren Instanzen — der Lock funktioniert also für manuelle Doppelklicks, aber nicht beim allerersten Start.
+
+### Beobachtungen (wmic-Ausgaben in dieser Session)
+- Vor Start: nur DCP Automatisierung (PID 5944) — kein Server-Neustart
+- Nach 1× VBS-Klick: immer 2× `python main.py` (wechselnde PIDs)
+- Nach 4–5 weiteren Klicks: keine neuen Instanzen hinzugekommen → Lock verhindert extra Starts korrekt
+- `taskkill` auf die alten PIDs: mehrfach "nicht gefunden" → Prozesse hatten sich selbst neu gestartet (via Auto-Updater `os.execv()`) bevor der Benutzer killen konnte
+
+### Was überprüft und ausgeschlossen wurde
+- **Windows Autostart-Ordner** (`C:\Users\Projektion\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup`): kein Eintrag für Server-Neustart (nur OneNote, VirtualBox, Signiant App)
+- **Task Scheduler** (`schtasks /query /fo LIST | findstr /i "neustart"`): kein Ergebnis — kein geplanter Task
+- **`start_hidden.vbs` Inhalt geprüft**: enthält nur einen einzigen `objShell.Run`-Aufruf mit `0, False` → startet genau einen cmd-Prozess, kein Doppelstart durch VBS selbst
+- **VBS startet nicht doppelt**: Inhalt ist eindeutig — `cmd /c cd /d "..." && venv\Scripts\activate.bat && python main.py`
+
+### Alle drei Lock-Ansätze und warum sie scheiterten
+
+**Versuch 1 — `msvcrt.locking()` (Datei-Byte-Lock, Windows)**
+- Lock-Datei `cinema_reboot.lock`, Byte-Range-Lock auf Byte 0
+- Problem: `msvcrt.locking()` sperrt nur eine Byte-Region innerhalb einer Datei. Bei `os.execv()` erbt der neue Prozess den Datei-Handle → neuer Prozess kann dieselbe Byte-Region erneut sperren (selber Prozess-Stammbaum, kein echtes Cross-Process-Lock)
+- Ergebnis: scheitert bei os.execv()-Neustarts
+
+**Versuch 2 — Windows Named Mutex via ctypes (Commit 510dfb3)**
+- `ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\CinemaRebootSingleInstance")`
+- Lock-Check auf frühestmöglichen Zeitpunkt verschoben (direkt nach `parser.parse_args()`)
+- Problem: `ctypes.windll.kernel32.GetLastError()` ist unzuverlässig — Python-interne Aufrufe zwischen `CreateMutexW` und `GetLastError` können den Windows-Fehlerwert (183 = ERROR_ALREADY_EXISTS) überschreiben. Folge: zweite Instanz sieht fälschlicherweise `last_err = 0` statt `183` → denkt sie ist die erste Instanz → läuft weiter
+- Ergebnis: beide Instanzen denken sie halten den Mutex → beide laufen
+
+**Versuch 3 — TCP-Socket auf 127.0.0.1:47392 (Commit 7ce4bc5)**
+- `socket.bind(("127.0.0.1", 47392))` — atomar, kein ctypes, kein GetLastError-Problem
+- `_release_single_instance_lock()` explizit vor jedem `os.execv()`-Aufruf → neuer Prozess kann Port sofort übernehmen
+- Ergebnis: noch immer 2 Instanzen — Root Cause liegt tiefer (vor oder außerhalb des Lock-Checks)
+
+### Wahrscheinlichster Root Cause (Theorie, nicht bewiesen)
+Wenn bereits 2 Instanzen laufen (aus einem früheren Start) und beide den Auto-Updater aktiv haben:
+1. Beide Instanzen erkennen einen neuen Git-Commit
+2. Beide rufen `_release_single_instance_lock()` auf (geben Port frei) und dann `os.execv()` auf
+3. Beide starten jeweils einen neuen Prozess — fast gleichzeitig
+4. Beide neuen Prozesse versuchen `socket.bind(47392)` — weil sie so dicht beieinander starten, könnte es sein, dass Prozess A noch nicht vollständig beendet ist wenn Prozess B' den Port prüft und dann beide die Bindung schaffen (unwahrscheinlich, aber möglich bei sehr schneller CPU)
+
+**Warum aber entstehen die ersten 2 aus 1 VBS-Klick?** — Das ist die eigentliche unbeantwortete Frage. Ohne direkten Windows-Zugriff und Process Monitor nicht lösbar.
+
+### Was für die nächste Session gebraucht wird
+- **Sysinternals Process Monitor** (<https://learn.microsoft.com/sysinternals/downloads/procmon>) auf dem Windows-PC ausführen, Filter auf `python.exe`, dann VBS klicken → zeigt genau welcher Eltern-Prozess `python main.py` ein zweites Mal startet und zu welcher Zeit
+- Alternativ: `wmic process where "name='python.exe'" get ProcessId,ParentProcessId,CommandLine` — zeigt den Eltern-Prozess (ParentProcessId) beider Instanzen → klärt ob VBS, cmd, oder Auto-Updater der Auslöser ist
+
+### Gefahr bei 2 gleichzeitigen Instanzen
+- **Doppel-Reboot**: Race-Condition-Fenster ~1s — beide Instanzen prüfen `is_due()` bevor eine `in_progress` setzt → beide starten Reboot desselben Kinos
+- **Telegram-Split**: Nachrichten gehen zufällig an Instanz A oder B → Menüs und Antworten inkonsistent
+- **`state.json`-Konflikte**: Kein Cross-Process-Lock → simultane Schreibvorgänge möglich
+
 ## Offene Probleme
 
-- **Doppelinstanz-Problem (ungeklärt)**: Ein einziger VBS-Klick startet stets 2 Python-Instanzen. Alle bisherigen Sperr-Ansätze (msvcrt, Named Mutex, TCP-Socket) verhindern zusätzliche manuelle Starts korrekt, aber nicht die 2. Instanz beim ersten Start. Vermutlicher Root Cause: Auto-Updater in beiden alten Instanzen löst gleichzeitig `os.execv()` aus → beide starten neue Instanzen, bevor die Sperre greifen kann.
-  - **Gefahr**: Doppel-Reboot möglich (Race-Condition-Fenster ~1s), Telegram-Antworten auf zufällige Instanz verteilt, `state.json`-Schreibkonflikte ohne Cross-Process-Lock.
-  - **Status**: Wird akzeptiert bis zur nächsten Session mit direktem Windows-Zugriff für Root-Cause-Analyse.
+- **Doppelinstanz-Problem (ungeklärt)**: Siehe ausführliche Analyse oben. Wird akzeptiert bis zur nächsten Session mit Process Monitor auf dem Windows-PC.
 - **`.git/FETCH_HEAD`: Permission denied** — tritt auf wenn git-Operationen von unterschiedlichen Windows-Nutzern/Prozessen gestartet werden. Behelfslösung: `takeown /f ".git" /r /d j` + `icacls ".git" /grant "Projektion:(OI)(CI)F" /T`.
 - **Kein automatisches Test-Framework**: Alle Tests erfolgen manuell via `--dry-run` und `--status`.
 
