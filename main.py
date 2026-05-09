@@ -546,7 +546,10 @@ def main():
         time.sleep(1)  # OS-Port braucht kurz bis er wirklich frei ist
         subprocess.Popen(
             [sys.executable] + sys.argv,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         os._exit(0)
 
@@ -599,7 +602,10 @@ def main():
         time.sleep(1)  # OS-Port braucht kurz bis er wirklich frei ist
         subprocess.Popen(
             [sys.executable] + sys.argv,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         os._exit(0)
 
