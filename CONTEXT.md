@@ -77,15 +77,24 @@ Wenn bereits 2 Instanzen laufen (aus einem früheren Start) und beide den Auto-U
 - **Telegram-Split**: Nachrichten gehen zufällig an Instanz A oder B → Menüs und Antworten inkonsistent
 - **`state.json`-Konflikte**: Kein Cross-Process-Lock → simultane Schreibvorgänge möglich
 
+## Versuch 4 – os.execv() → sys.exit(0) (09.05.2026)
+
+**Theorie**: Wenn `os.execv()` auf Windows einen neuen Prozess startet UND gleichzeitig NSSM den sterbenden Prozess neu startet, entstehen 2 Instanzen aus dem Update-Zyklus. Mit `sys.exit(0)` startet NSSM genau einmal — kein zweiter Prozess durch `os.execv()` möglich.
+
+**Änderungen in `main.py`**:
+- Zeile 541–544: `_release_single_instance_lock()` + `os.execv()` → `sys.exit(0)` (Startup-Update-Check)
+- Zeile 588–592: `_release_single_instance_lock()` + `os.execv()` → `sys.exit(0)` (Hintergrund-Update)
+
+**Offen**: Ob dies den Root Cause (1× VBS-Klick → 2 Instanzen beim allerersten Start) tatsächlich löst, ist unbewiesen. Der TCP-Socket-Lock bleibt als zusätzliche Sicherheitsschicht aktiv.
+
 ## Offene Probleme
 
-- **Doppelinstanz-Problem (ungeklärt)**: Siehe ausführliche Analyse oben. Wird akzeptiert bis zur nächsten Session mit Process Monitor auf dem Windows-PC.
+- **Doppelinstanz-Problem (teilweise adressiert)**: `os.execv()` entfernt (Versuch 4). Root Cause (warum 1× VBS-Klick beim allerersten Start 2 Instanzen erzeugt) noch ungeklärt. Nächster Schritt: Sysinternals Process Monitor auf dem Windows-PC, Filter auf `python.exe`, dann VBS klicken.
 - **`.git/FETCH_HEAD`: Permission denied** — tritt auf wenn git-Operationen von unterschiedlichen Windows-Nutzern/Prozessen gestartet werden. Behelfslösung: `takeown /f ".git" /r /d j` + `icacls ".git" /grant "Projektion:(OI)(CI)F" /T`.
 - **Kein automatisches Test-Framework**: Alle Tests erfolgen manuell via `--dry-run` und `--status`.
 
 ## Nächster Schritt
 
-- **Donnerstag 07.05.2026 ab 05:00 Uhr** beobachten: Starten alle 13 Kinos automatisch neu?
-- Prüfen ob das adaptive Retry-Intervall (15 Min in letzter Stunde) korrekt funktioniert
-- Doppelinstanz-Problem: Root Cause muss via Windows-Prozessmonitor (z.B. Process Monitor von Sysinternals) ermittelt werden — zeigt genau, welcher Prozess `python main.py` ein zweites Mal startet
+- Beobachten ob nach dem nächsten Auto-Update noch 2 Instanzen entstehen (Versuch 4 prüfen)
+- Doppelinstanz Root Cause: Process Monitor (Sysinternals) auf Windows-PC ausführen, Filter `python.exe`, VBS klicken → zeigt welcher Eltern-Prozess die zweite Instanz startet
 - Falls Telegram wieder nicht reagiert: Logs in `logs/` prüfen, auf Exception-Muster im `_run_loop` achten

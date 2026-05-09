@@ -538,10 +538,10 @@ def main():
         cmd_test_lamps(config_path)
         return
 
-    # Auto-Update prüfen – bei Änderung Prozess neu starten
+    # Auto-Update prüfen – NSSM übernimmt den Neustart (kein os.execv → kein Race Condition)
     if check_and_update():
-        _release_single_instance_lock()  # Sperre freigeben bevor neuer Prozess startet
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        logger.info("Update installiert – NSSM startet den Dienst neu.")
+        sys.exit(0)
 
     # Telegram-Controller starten (falls aktiviert)
     if controller:
@@ -585,11 +585,10 @@ def main():
         if health_monitor:
             health_monitor.stop()
 
-    # Neustart nach Hintergrund-Update
+    # Neustart nach Hintergrund-Update – NSSM übernimmt den Neustart
     if app_state.update_available:
-        logger.info("Starte Programm nach Update neu...")
-        _release_single_instance_lock()  # Sperre freigeben bevor neuer Prozess startet
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        logger.info("Update installiert – NSSM startet den Dienst neu.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
