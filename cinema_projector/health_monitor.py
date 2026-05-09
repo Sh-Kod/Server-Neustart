@@ -58,7 +58,7 @@ class HealthMonitor:
         self._thresholds = TempThresholds("temp_thresholds.json")
         self._thread: Optional[threading.Thread] = None
         self._running    = False
-        self._enabled    = True
+        self._enabled    = False  # Nach jedem Neustart deaktiviert – explizit via Telegram aktivieren
 
     def start(self) -> None:
         self._running = True

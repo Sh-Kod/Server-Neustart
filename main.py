@@ -14,6 +14,7 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import sys
 import time
 
@@ -538,10 +539,15 @@ def main():
         cmd_test_lamps(config_path)
         return
 
-    # Auto-Update prüfen – NSSM übernimmt den Neustart (kein os.execv → kein Race Condition)
+    # Auto-Update: neuen Prozess unabhängig starten, dann sofort beenden (kein P_OVERLAY-Warten)
     if check_and_update():
-        logger.info("Update installiert – NSSM startet den Dienst neu.")
-        sys.exit(0)
+        logger.info("Update installiert – starte neu...")
+        _release_single_instance_lock()
+        subprocess.Popen(
+            [sys.executable] + sys.argv,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        os._exit(0)
 
     # Telegram-Controller starten (falls aktiviert)
     if controller:
@@ -585,10 +591,15 @@ def main():
         if health_monitor:
             health_monitor.stop()
 
-    # Neustart nach Hintergrund-Update – NSSM übernimmt den Neustart
+    # Hintergrund-Update: neuen Prozess unabhängig starten, dann sofort beenden
     if app_state.update_available:
-        logger.info("Update installiert – NSSM startet den Dienst neu.")
-        sys.exit(0)
+        logger.info("Update installiert – starte neu...")
+        _release_single_instance_lock()
+        subprocess.Popen(
+            [sys.executable] + sys.argv,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        os._exit(0)
 
 
 if __name__ == "__main__":
