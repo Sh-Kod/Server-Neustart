@@ -543,6 +543,7 @@ def main():
     if check_and_update():
         logger.info("Update installiert – starte neu...")
         _release_single_instance_lock()
+        time.sleep(1)  # OS-Port braucht kurz bis er wirklich frei ist
         subprocess.Popen(
             [sys.executable] + sys.argv,
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
@@ -595,6 +596,7 @@ def main():
     if app_state.update_available:
         logger.info("Update installiert – starte neu...")
         _release_single_instance_lock()
+        time.sleep(1)  # OS-Port braucht kurz bis er wirklich frei ist
         subprocess.Popen(
             [sys.executable] + sys.argv,
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
