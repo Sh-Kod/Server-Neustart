@@ -546,7 +546,7 @@ def main():
         subprocess.Popen(
             [sys.executable] + sys.argv,
             creationflags=(
-                subprocess.DETACHED_PROCESS |
+                subprocess.CREATE_NO_WINDOW |
                 subprocess.CREATE_NEW_PROCESS_GROUP |
                 subprocess.CREATE_BREAKAWAY_FROM_JOB
             ),
@@ -599,7 +599,7 @@ def main():
             subprocess.Popen(
                 [sys.executable] + sys.argv,
                 creationflags=(
-                    subprocess.DETACHED_PROCESS |
+                    subprocess.CREATE_NO_WINDOW |
                     subprocess.CREATE_NEW_PROCESS_GROUP |
                     subprocess.CREATE_BREAKAWAY_FROM_JOB
                 ),
