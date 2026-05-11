@@ -81,20 +81,36 @@ Wenn bereits 2 Instanzen laufen (aus einem früheren Start) und beide den Auto-U
 
 **Theorie**: Wenn `os.execv()` auf Windows einen neuen Prozess startet UND gleichzeitig NSSM den sterbenden Prozess neu startet, entstehen 2 Instanzen aus dem Update-Zyklus. Mit `sys.exit(0)` startet NSSM genau einmal — kein zweiter Prozess durch `os.execv()` möglich.
 
-**Änderungen in `main.py`**:
-- Zeile 541–544: `_release_single_instance_lock()` + `os.execv()` → `sys.exit(0)` (Startup-Update-Check)
-- Zeile 588–592: `_release_single_instance_lock()` + `os.execv()` → `sys.exit(0)` (Hintergrund-Update)
+**Ergebnis**: Fehlgeschlagen — kein NSSM vorhanden, VBS startet das Programm nicht neu. Nach `sys.exit(0)` läuft kein Programm mehr.
 
-**Offen**: Ob dies den Root Cause (1× VBS-Klick → 2 Instanzen beim allerersten Start) tatsächlich löst, ist unbewiesen. Der TCP-Socket-Lock bleibt als zusätzliche Sicherheitsschicht aktiv.
+## Versuch 5 – subprocess.Popen (DETACHED + NEWGRP) + os._exit(0) (09.05.2026)
+
+**Theorie**: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` + `DEVNULL`-Redirects + `os._exit(0)` statt `os.execv()`. VBS direkt auf `venv\Scripts\python.exe` (kein cmd.exe).
+
+**Ergebnis**: Noch immer 2 Instanzen sichtbar (wmic). Fehlendes `CREATE_BREAKAWAY_FROM_JOB` und falscher Platz des Restart-Codes im `finally`-Block.
+
+## Versuch 6 – CREATE_BREAKAWAY_FROM_JOB + finally-Block-Timing (09.05.2026)
+
+**Root Causes (aus Online-Recherche bestätigt)**:
+
+1. **`CREATE_BREAKAWAY_FROM_JOB` fehlte**: Windows setzt Prozesse automatisch in Job-Objekte (WScript.Shell oder Windows-Session-Management). Ohne dieses Flag wird der Kindprozess in dasselbe Job-Objekt eingetragen — er ist nicht wirklich unabhängig. Hinzugefügt in beiden Popen-Aufrufen.
+
+2. **`finally`-Block verzögert den Kill**: Das `if app_state.update_available:` stand NACH dem `finally:`-Block. Der `finally:`-Block rief `controller.stop()` auf (Telegram-Thread mit `join(timeout=5)`) → bis zu 5 Sekunden Verzögerung. Während dieser Zeit liefen BEIDE Instanzen gleichzeitig. Fix: Update-Restart-Block an den ANFANG des `finally:`-Blocks verschoben; `os._exit(0)` im Update-Fall vor Cleanup.
+
+3. **`time.sleep(1)` unnötig**: Ein Listening-Socket gibt seinen Port bei `close()` sofort frei (kein TCP TIME_WAIT). Entfernt.
+
+**Änderungen in `main.py`**:
+- Startup-Update-Check (ca. Zeile 542–557): `time.sleep(1)` entfernt, `CREATE_BREAKAWAY_FROM_JOB` ergänzt
+- `try/finally`-Block (ca. Zeile 590–617): `if app_state.update_available:` an Anfang des `finally:`-Blocks verschoben (BEVOR cleanup), `time.sleep(1)` entfernt, `CREATE_BREAKAWAY_FROM_JOB` ergänzt
 
 ## Offene Probleme
 
-- **Doppelinstanz-Problem (teilweise adressiert)**: `os.execv()` entfernt (Versuch 4). Root Cause (warum 1× VBS-Klick beim allerersten Start 2 Instanzen erzeugt) noch ungeklärt. Nächster Schritt: Sysinternals Process Monitor auf dem Windows-PC, Filter auf `python.exe`, dann VBS klicken.
+- **Doppelinstanz-Problem (Versuch 6 aktiv)**: Ob alle 3 Root Causes gemeinsam das Problem lösen, muss beim nächsten Auto-Update beobachtet werden.
 - **`.git/FETCH_HEAD`: Permission denied** — tritt auf wenn git-Operationen von unterschiedlichen Windows-Nutzern/Prozessen gestartet werden. Behelfslösung: `takeown /f ".git" /r /d j` + `icacls ".git" /grant "Projektion:(OI)(CI)F" /T`.
 - **Kein automatisches Test-Framework**: Alle Tests erfolgen manuell via `--dry-run` und `--status`.
 
 ## Nächster Schritt
 
-- Beobachten ob nach dem nächsten Auto-Update noch 2 Instanzen entstehen (Versuch 4 prüfen)
-- Doppelinstanz Root Cause: Process Monitor (Sysinternals) auf Windows-PC ausführen, Filter `python.exe`, VBS klicken → zeigt welcher Eltern-Prozess die zweite Instanz startet
+- Nach nächstem Auto-Update: `wmic process where "name='python.exe'" get ProcessId,ParentProcessId,CommandLine /format:list` ausführen → prüfen ob noch 2 Instanzen sichtbar sind
+- Falls noch immer 2: Sysinternals Process Monitor auf Windows-PC ausführen, Filter `python.exe`, VBS klicken → zeigt welcher Eltern-Prozess die zweite Instanz startet
 - Falls Telegram wieder nicht reagiert: Logs in `logs/` prüfen, auf Exception-Muster im `_run_loop` achten

@@ -539,14 +539,17 @@ def main():
         cmd_test_lamps(config_path)
         return
 
-    # Auto-Update: neuen Prozess unabhängig starten, dann sofort beenden (kein P_OVERLAY-Warten)
+    # Auto-Update: neuen Prozess vollständig unabhängig starten, dann sofort beenden
     if check_and_update():
         logger.info("Update installiert – starte neu...")
         _release_single_instance_lock()
-        time.sleep(1)  # OS-Port braucht kurz bis er wirklich frei ist
         subprocess.Popen(
             [sys.executable] + sys.argv,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=(
+                subprocess.DETACHED_PROCESS |
+                subprocess.CREATE_NEW_PROCESS_GROUP |
+                subprocess.CREATE_BREAKAWAY_FROM_JOB
+            ),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -588,26 +591,30 @@ def main():
     try:
         main_loop(config, app_state, state, scheduler, engine, telegram)
     finally:
+        # Bei Update sofort neu starten BEVOR langer Cleanup (Telegram-Poll-Timeout etc.)
+        # verhindert, dass beide Instanzen gleichzeitig mehrere Sekunden laufen.
+        if app_state.update_available:
+            logger.info("Update installiert – starte neu...")
+            _release_single_instance_lock()
+            subprocess.Popen(
+                [sys.executable] + sys.argv,
+                creationflags=(
+                    subprocess.DETACHED_PROCESS |
+                    subprocess.CREATE_NEW_PROCESS_GROUP |
+                    subprocess.CREATE_BREAKAWAY_FROM_JOB
+                ),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            os._exit(0)
+
         if controller:
             controller.stop()
         if lamp_monitor:
             lamp_monitor.stop()
         if health_monitor:
             health_monitor.stop()
-
-    # Hintergrund-Update: neuen Prozess unabhängig starten, dann sofort beenden
-    if app_state.update_available:
-        logger.info("Update installiert – starte neu...")
-        _release_single_instance_lock()
-        time.sleep(1)  # OS-Port braucht kurz bis er wirklich frei ist
-        subprocess.Popen(
-            [sys.executable] + sys.argv,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        os._exit(0)
 
 
 if __name__ == "__main__":
