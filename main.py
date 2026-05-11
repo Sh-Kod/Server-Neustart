@@ -14,7 +14,6 @@ import logging
 import os
 import signal
 import socket
-import subprocess
 import sys
 import time
 
@@ -59,17 +58,6 @@ def _acquire_single_instance_lock() -> bool:
     except OSError:
         return False
 
-
-def _release_single_instance_lock() -> None:
-    """Gibt die Sperre explizit frei – muss vor os.execv() aufgerufen werden,
-    damit der neu gestartete Prozess die Sperre übernehmen kann."""
-    global _lock_socket
-    if _lock_socket is not None:
-        try:
-            _lock_socket.close()
-        except Exception:
-            pass
-        _lock_socket = None
 
 
 def handle_shutdown(sig, frame):
@@ -539,22 +527,10 @@ def main():
         cmd_test_lamps(config_path)
         return
 
-    # Auto-Update: neuen Prozess vollständig unabhängig starten, dann sofort beenden
+    # Auto-Update: NSSM startet den Dienst nach sys.exit() automatisch neu
     if check_and_update():
-        logger.info("Update installiert – starte neu...")
-        _release_single_instance_lock()
-        subprocess.Popen(
-            [sys.executable] + sys.argv,
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW |
-                subprocess.CREATE_NEW_PROCESS_GROUP |
-                subprocess.CREATE_BREAKAWAY_FROM_JOB
-            ),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        os._exit(0)
+        logger.info("Update installiert – NSSM startet neu...")
+        sys.exit(0)
 
     # Telegram-Controller starten (falls aktiviert)
     if controller:
@@ -591,30 +567,17 @@ def main():
     try:
         main_loop(config, app_state, state, scheduler, engine, telegram)
     finally:
-        # Bei Update sofort neu starten BEVOR langer Cleanup (Telegram-Poll-Timeout etc.)
-        # verhindert, dass beide Instanzen gleichzeitig mehrere Sekunden laufen.
-        if app_state.update_available:
-            logger.info("Update installiert – starte neu...")
-            _release_single_instance_lock()
-            subprocess.Popen(
-                [sys.executable] + sys.argv,
-                creationflags=(
-                    subprocess.CREATE_NO_WINDOW |
-                    subprocess.CREATE_NEW_PROCESS_GROUP |
-                    subprocess.CREATE_BREAKAWAY_FROM_JOB
-                ),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            os._exit(0)
-
         if controller:
             controller.stop()
         if lamp_monitor:
             lamp_monitor.stop()
         if health_monitor:
             health_monitor.stop()
+
+    # Hintergrund-Update: NSSM startet den Dienst nach sys.exit() automatisch neu
+    if app_state.update_available:
+        logger.info("Update installiert – NSSM startet neu...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
