@@ -21,10 +21,22 @@ logger = logging.getLogger(__name__)
 _BASE_DIR = Path(__file__).resolve().parent.parent
 UPDATE_INTERVAL_SECONDS = 30
 
+# NSSM-Dienste haben keinen vollen PATH – git explizit suchen
+def _find_git() -> str:
+    for candidate in [
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+    ]:
+        if Path(candidate).exists():
+            return candidate
+    return "git"  # Fallback wenn git im PATH ist
+
+_GIT_EXE = _find_git()
+
 
 def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args],
+        [_GIT_EXE, *args],
         capture_output=True,
         text=True,
         cwd=str(_BASE_DIR),

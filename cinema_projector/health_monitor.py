@@ -58,6 +58,7 @@ class HealthMonitor:
         self._thresholds = TempThresholds("temp_thresholds.json")
         self._thread: Optional[threading.Thread] = None
         self._running    = False
+        self._enabled    = False  # Nach jedem Neustart deaktiviert – explizit via Telegram aktivieren
 
     def start(self) -> None:
         self._running = True
@@ -73,6 +74,14 @@ class HealthMonitor:
 
     def stop(self) -> None:
         self._running = False
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def set_enabled(self, v: bool) -> None:
+        self._enabled = v
+        logger.info(f"[GESUNDHEIT] Monitor {'aktiviert' if v else 'deaktiviert'}.")
 
     def check_all_now(self) -> list:
         """Sofortprüfung aller Projektoren (für Telegram-Befehl, ohne State-Änderung)."""
@@ -104,15 +113,20 @@ class HealthMonitor:
 
     def _loop(self) -> None:
         while self._running:
-            try:
-                self._tick()
-            except Exception as e:
-                logger.exception(f"[GESUNDHEIT] Unerwarteter Fehler: {e}")
-            # In 1-Sekunden-Schritten für sauberes Stop
+            # In 1-Sekunden-Schritten für sauberes Stop und schnelle Enable-Reaktion
             for _ in range(self._interval):
                 if not self._running:
                     break
                 time.sleep(1)
+            if not self._running:
+                break
+            if not self._enabled:
+                logger.debug("[GESUNDHEIT] Monitor pausiert – kein Check.")
+                continue
+            try:
+                self._tick()
+            except Exception as e:
+                logger.exception(f"[GESUNDHEIT] Unerwarteter Fehler: {e}")
 
     def _tick(self) -> None:
         results = self._run_checks()

@@ -39,6 +39,7 @@ class AppState:
         self._shutdown_requested: bool = False
         self._update_available: bool = False
         self._pending_runs: Set[str] = set()  # cinema_ids für sofortigen Lauf
+        self._reboot_enabled: bool = True
         self.version: str = VERSION
 
     # ── Pause / Resume ───────────────────────────────────────────────────────
@@ -95,6 +96,17 @@ class AppState:
         with self._lock:
             self._last_scheduler_restart = datetime.now(self._tz)
             self._paused = False  # Nach Neustart automatisch fortsetzen
+
+    # ── Modul-Steuerung ──────────────────────────────────────────────────────
+
+    @property
+    def reboot_enabled(self) -> bool:
+        with self._lock:
+            return self._reboot_enabled
+
+    def set_reboot_enabled(self, v: bool) -> None:
+        with self._lock:
+            self._reboot_enabled = v
 
     # ── Manuelle Sofortläufe ─────────────────────────────────────────────────
 

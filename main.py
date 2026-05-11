@@ -13,6 +13,7 @@ import argparse
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 
@@ -35,6 +36,28 @@ logger = logging.getLogger(__name__)
 
 # Globales Flag für sauberes Beenden (SIGINT/SIGTERM)
 _running = True
+
+# Socket-Handle für Einzelinstanz-Sperre (global, damit GC ihn nicht schließt)
+_lock_socket = None
+
+# Port für die Einzel-Instanz-Sperre (lokal, nur 127.0.0.1)
+_LOCK_PORT = 47392
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Verhindert Doppelstart via TCP-Socket-Bindung auf 127.0.0.1.
+    Gibt True zurück wenn diese Instanz die Sperre hält, sonst False.
+    Der Socket wird automatisch freigegeben wenn der Prozess endet."""
+    global _lock_socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", _LOCK_PORT))
+        sock.listen(1)
+        _lock_socket = sock  # Global halten damit GC ihn nicht schließt
+        return True
+    except OSError:
+        return False
+
 
 
 def handle_shutdown(sig, frame):
@@ -293,7 +316,7 @@ def main_loop(
 
         # Sofort-Läufe via Telegram?
         pending = app_state.pop_pending_runs()
-        if pending:
+        if pending and app_state.reboot_enabled:
             cinemas_map = {c["id"]: c for c in config.cinemas}
             to_run = [cinemas_map[cid] for cid in pending if cid in cinemas_map]
             unknown = [cid for cid in pending if cid not in cinemas_map]
@@ -307,24 +330,27 @@ def main_loop(
                 else:
                     for cinema in to_run:
                         engine.run(cinema)
+        elif pending and not app_state.reboot_enabled:
+            logger.info("Sofort-Reboot ignoriert – Server-Neustart-Modul ist deaktiviert.")
 
         # Welche Kinos sind planmäßig dran?
-        due = scheduler.get_cinemas_due()
-        if due:
-            logger.info(f"Fällige Kinos: {[c['name'] for c in due]}")
-            if config.parallel_reboot and len(due) > 1:
-                engine.run_parallel(due)
+        if app_state.reboot_enabled:
+            due = scheduler.get_cinemas_due()
+            if due:
+                logger.info(f"Fällige Kinos: {[c['name'] for c in due]}")
+                if config.parallel_reboot and len(due) > 1:
+                    engine.run_parallel(due)
+                else:
+                    for cinema in due:
+                        if not _running or app_state.shutdown_requested:
+                            break
+                        logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
+                        engine.run(cinema)
             else:
-                for cinema in due:
-                    if not _running or app_state.shutdown_requested:
-                        break
-                    logger.info(f"━━━ Bearbeite: {cinema['name']} ━━━")
-                    engine.run(cinema)
-        else:
-            if scheduler.in_maintenance_window():
-                logger.debug("Im Wartungsfenster, aber kein Kino fällig.")
-            else:
-                logger.debug("Außerhalb des Wartungsfensters – warte...")
+                if scheduler.in_maintenance_window():
+                    logger.debug("Im Wartungsfenster, aber kein Kino fällig.")
+                else:
+                    logger.debug("Außerhalb des Wartungsfensters – warte...")
 
         # ── "Alle Säle erledigt" Nachricht ───────────────────────────────────
         if not _all_done_reported and scheduler.in_maintenance_window():
@@ -432,6 +458,13 @@ def main():
     )
     args = parser.parse_args()
 
+    # Einzelinstanz-Sperre so früh wie möglich – bevor irgendein Setup startet.
+    # Einmalige Befehle (--status, --run, etc.) dürfen parallel zur Daemon-Instanz laufen.
+    is_daemon = not (args.status or args.run or args.test_projector or args.test_lamps)
+    if is_daemon and not _acquire_single_instance_lock():
+        print("[Cinema Reboot] Eine andere Instanz läuft bereits – beende.")
+        sys.exit(0)
+
     config_path = os.path.abspath(args.config)
 
     # Konfiguration laden
@@ -494,9 +527,10 @@ def main():
         cmd_test_lamps(config_path)
         return
 
-    # Auto-Update prüfen – bei Änderung Prozess neu starten
+    # Auto-Update: NSSM startet den Dienst nach sys.exit() automatisch neu
     if check_and_update():
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        logger.info("Update installiert – NSSM startet neu...")
+        sys.exit(0)
 
     # Telegram-Controller starten (falls aktiviert)
     if controller:
@@ -540,10 +574,10 @@ def main():
         if health_monitor:
             health_monitor.stop()
 
-    # Neustart nach Hintergrund-Update
+    # Hintergrund-Update: NSSM startet den Dienst nach sys.exit() automatisch neu
     if app_state.update_available:
-        logger.info("Starte Programm nach Update neu...")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        logger.info("Update installiert – NSSM startet neu...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

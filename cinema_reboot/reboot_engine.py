@@ -167,12 +167,9 @@ class RebootEngine:
         logger.info(f"[{cinema_name}] Erreichbarkeitscheck...")
         if not handler.is_reachable():
             logger.warning(f"[{cinema_name}] Server nicht erreichbar: {ip}")
-            next_retry = self._scheduler.next_retry_time()
-
-            # Nur innerhalb Wartungsfenster Retry planen
-            if not self._scheduler.is_within_window(next_retry):
+            next_retry = self._scheduler.smart_next_retry_time()
+            if next_retry is None:
                 logger.info(f"[{cinema_name}] Retry-Zeit außerhalb des Wartungsfensters – kein weiterer Retry heute.")
-                next_retry = None
 
             self._state.set_offline(cinema_id, next_retry)
             self._telegram.send_server_offline(cinema_name, ip, next_retry)
@@ -343,10 +340,8 @@ class RebootEngine:
 
         # Nächsten Retry berechnen (nur wenn Retry-Zeit noch im Wartungsfenster liegt)
         if result not in (RebootResult.SUCCESS, RebootResult.DRY_RUN_OK):
-            candidate = self._scheduler.next_retry_time()
-            if self._scheduler.is_within_window(candidate):
-                next_retry = candidate
-            else:
+            next_retry = self._scheduler.smart_next_retry_time()
+            if next_retry is None:
                 logger.info(
                     f"[{cinema_name}] Retry-Zeit liegt außerhalb des Wartungsfensters → "
                     "kein weiterer Retry heute."

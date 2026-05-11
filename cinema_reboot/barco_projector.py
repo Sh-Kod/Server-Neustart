@@ -45,36 +45,88 @@ def _checksum(address: int, cmd_bytes: list[int], data_bytes: list[int] = []) ->
     return (address + sum(cmd_bytes) + sum(data_bytes)) % 256
 
 
+def _escape(payload: bytes) -> bytes:
+    """Barco Byte-Stuffing: maskiert 0x80/0xFE/0xFF im Payload."""
+    out = []
+    for b in payload:
+        if b == 0x80:
+            out += [0x80, 0x00]
+        elif b == 0xFE:
+            out += [0x80, 0x7E]
+        elif b == 0xFF:
+            out += [0x80, 0x7F]
+        else:
+            out.append(b)
+    return bytes(out)
+
+
+def _unescape(payload: bytes) -> bytes:
+    """Barco Byte-Stuffing: demaskiert Escape-Sequenzen im empfangenen Payload."""
+    out = []
+    i = 0
+    while i < len(payload):
+        b = payload[i]
+        if b == 0x80 and i + 1 < len(payload):
+            nxt = payload[i + 1]
+            out.append({0x00: 0x80, 0x7E: 0xFE, 0x7F: 0xFF}.get(nxt, nxt))
+            i += 2
+        else:
+            out.append(b)
+            i += 1
+    return bytes(out)
+
+
 def _build_lamp_read_request(address: int = 0x00) -> bytes:
-    """Baut das Lamp-Read-Paket zusammen."""
+    """Baut das Lamp-Read-Paket mit korrekt escaptem Payload zusammen."""
     cmd = [_LAMP_READ_CMD0, _LAMP_READ_CMD1]
     cs  = _checksum(address, cmd)
-    return bytes([_START, address] + cmd + [cs, _STOP])
+    payload = bytes([address] + cmd + [cs])
+    return bytes([_START]) + _escape(payload) + bytes([_STOP])
 
 
 def _parse_lamp_response(data: bytes) -> Optional[bool]:
     """
-    Wertet die Lampen-Antwort aus.
-    Gibt True zurück (Lampe AN), False (Lampe AUS), oder None bei Parse-Fehler.
-    Erwartet: \xfe \x00 \x76 \x9a [0x00/0x01] [checksum] \xff
+    Wertet die Lampen-Antwort aus (nach Unescape).
+    Gibt True (Lampe AN), False (Lampe AUS) oder None bei Parse-Fehler zurück.
     """
-    if len(data) < 7:
+    if len(data) < 2:
         logger.debug(f"Barco Lampen-Antwort zu kurz: {data.hex()}")
         return None
     if data[0] != _START or data[-1] != _STOP:
         logger.debug(f"Barco Antwort: fehlendes Start/Stop-Byte: {data.hex()}")
         return None
-    # Prüfe ob Antwort zum Lamp-Read-Cmd passt
-    if data[2] != _LAMP_READ_CMD0 or data[3] != _LAMP_READ_CMD1:
-        logger.debug(f"Barco Antwort: unerwartete Cmd-Bytes: {data.hex()}")
+    inner = _unescape(data[1:-1])
+    # inner: addr(1) + cmd0(1) + cmd1(1) + lamp_byte(1) + chksum(1)
+    if len(inner) < 4:
+        logger.debug(f"Barco Antwort: innerer Payload zu kurz: {inner.hex()}")
         return None
-    lamp_byte = data[4]
+    if inner[1] != _LAMP_READ_CMD0 or inner[2] != _LAMP_READ_CMD1:
+        logger.debug(f"Barco Antwort: unerwartete Cmd-Bytes: {inner.hex()}")
+        return None
+    lamp_byte = inner[3]
     if lamp_byte == _LAMP_ON:
         return True
     if lamp_byte == _LAMP_OFF:
         return False
     logger.debug(f"Barco Antwort: unbekannter Lampen-Status-Byte: {lamp_byte:#04x}")
     return None
+
+
+def _recv_frame(sock, timeout: int) -> bytes:
+    """Liest ein vollständiges Barco-Frame bis zum Stop-Byte 0xFF."""
+    buf = b""
+    sock.settimeout(timeout)
+    try:
+        while True:
+            b = sock.recv(1)
+            if not b:
+                break
+            buf += b
+            if b == b"\xff":
+                break
+    except socket.timeout:
+        pass
+    return buf
 
 
 def read_lamp_on(
@@ -105,7 +157,7 @@ def read_lamp_on(
         ) as sock:
             sock.sendall(request)
 
-            # Zuerst ACK lesen (6 Bytes)
+            # Zuerst ACK lesen (6 Bytes – ACK enthält keine Escape-Sequenzen)
             ack = sock.recv(6)
             logger.debug(f"Barco ACK empfangen: {ack.hex()}")
 
@@ -116,9 +168,9 @@ def read_lamp_on(
                 )
                 return None
 
-            # Dann Antwort lesen (7 Bytes)
-            response = sock.recv(7)
-            logger.debug(f"Barco Lampen-Antwort: {response.hex()}")
+            # Antwort lesen bis Stop-Byte (variable Länge durch Escaping)
+            response = _recv_frame(sock, timeout)
+            logger.debug(f"Barco Lampen-Antwort: {response.hex() if response else 'leer'}")
 
     except socket.timeout:
         logger.warning(

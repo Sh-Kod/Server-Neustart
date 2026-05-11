@@ -56,10 +56,42 @@ def _checksum(address: int, cmd_bytes: list, data_bytes: list = None) -> int:
     return (address + sum(cmd_bytes) + sum(data_bytes)) % 256
 
 
+def _escape(payload: bytes) -> bytes:
+    """Barco Byte-Stuffing: maskiert 0x80/0xFE/0xFF im Payload."""
+    out = []
+    for b in payload:
+        if b == 0x80:
+            out += [0x80, 0x00]
+        elif b == 0xFE:
+            out += [0x80, 0x7E]
+        elif b == 0xFF:
+            out += [0x80, 0x7F]
+        else:
+            out.append(b)
+    return bytes(out)
+
+
+def _unescape(payload: bytes) -> bytes:
+    """Barco Byte-Stuffing: demaskiert Escape-Sequenzen im empfangenen Payload."""
+    out = []
+    i = 0
+    while i < len(payload):
+        b = payload[i]
+        if b == 0x80 and i + 1 < len(payload):
+            nxt = payload[i + 1]
+            out.append({0x00: 0x80, 0x7E: 0xFE, 0x7F: 0xFF}.get(nxt, nxt))
+            i += 2
+        else:
+            out.append(b)
+            i += 1
+    return bytes(out)
+
+
 def _build_status_request() -> bytes:
-    """Baut das Status-Abfrage-Paket zusammen."""
+    """Baut das Status-Abfrage-Paket mit korrekt escaptem Payload zusammen."""
     cs = _checksum(_ADDR, _STATUS_CMD)
-    return bytes([_START, _ADDR] + _STATUS_CMD + [cs, _STOP])
+    payload = bytes([_ADDR] + _STATUS_CMD + [cs])
+    return bytes([_START]) + _escape(payload) + bytes([_STOP])
 
 
 @dataclass
@@ -80,8 +112,7 @@ class HealthResult:
 
 def _parse_counts(data: bytes) -> tuple:
     """
-    Wertet die Status-Antwort aus.
-    Erwartet: \xfe \x00 \x81 \x04 \x17 [notif 4B] [warn 4B] [error 4B] [chksum] \xff
+    Wertet die Status-Antwort aus (nach Unescape).
     Gibt (notification_count, warning_count, error_count) oder None bei Fehler zurück.
     """
     if len(data) < 2:
@@ -92,26 +123,27 @@ def _parse_counts(data: bytes) -> tuple:
         logger.debug(f"Barco Gesundheit: fehlendes Start/Stop-Byte: {data.hex()}")
         return None
 
-    # Erwartete Mindestlänge: start(1) + addr(1) + cmd(3) + data(12) + chksum(1) + stop(1) = 19
-    if len(data) < 19:
-        logger.debug(f"Barco Gesundheit: Antwort zu kurz ({len(data)} Bytes, erwartet ≥19): {data.hex()}")
+    # Payload demaskieren (alles zwischen Start- und Stop-Byte)
+    inner = _unescape(data[1:-1])
+    # Erwartet: addr(1) + cmd(3) + data(12) + chksum(1) = 17 Bytes
+    if len(inner) < 17:
+        logger.debug(f"Barco Gesundheit: innere Nutzlast zu kurz ({len(inner)} B): {inner.hex()}")
         return None
 
-    # Cmd-Bytes prüfen (Positionen 2, 3, 4)
-    if data[2] != _STATUS_CMD[0] or data[3] != _STATUS_CMD[1] or data[4] != _STATUS_CMD[2]:
-        logger.debug(f"Barco Gesundheit: falsche Cmd-Bytes: {data.hex()}")
+    if inner[1] != _STATUS_CMD[0] or inner[2] != _STATUS_CMD[1] or inner[3] != _STATUS_CMD[2]:
+        logger.debug(f"Barco Gesundheit: falsche Cmd-Bytes: {inner.hex()}")
         return None
 
-    # Daten-Bytes lesen (12 Bytes ab Position 5, 3 × 4 Bytes Little-Endian)
-    payload = data[5:17]
+    # 3 × 4 Bytes ab Position 4, MSB-first (Big-Endian) laut Barco-Protokoll
+    payload = inner[4:16]
     if len(payload) < 12:
-        logger.debug(f"Barco Gesundheit: Payload zu kurz: {data.hex()}")
+        logger.debug(f"Barco Gesundheit: Payload zu kurz: {inner.hex()}")
         return None
 
     try:
-        notifications = struct.unpack_from("<I", payload, 0)[0]
-        warnings      = struct.unpack_from("<I", payload, 4)[0]
-        errors        = struct.unpack_from("<I", payload, 8)[0]
+        notifications = struct.unpack_from(">I", payload, 0)[0]
+        warnings      = struct.unpack_from(">I", payload, 4)[0]
+        errors        = struct.unpack_from(">I", payload, 8)[0]
     except struct.error as e:
         logger.debug(f"Barco Gesundheit: struct-Fehler: {e}")
         return None
@@ -182,8 +214,8 @@ def check_health(
                     raw_response=ack.hex(),
                 )
 
-            # Antwort lesen (19 Bytes: start+addr+3cmd+12data+chksum+stop)
-            response = _recv_exact(sock, 19, timeout)
+            # Antwort lesen (variable Länge durch Escaping – lese bis Stop-Byte)
+            response = _recv_frame(sock, timeout)
             logger.debug(f"[GESUNDHEIT] {cinema_name}: Antwort: {response.hex() if response else 'leer'}")
 
     except socket.timeout:
@@ -291,21 +323,25 @@ def _read_barco_lamp_status(ip: str, port: int, timeout: int) -> object:
     """
     Liest den Barco-Lampenstatus via TCP (kurze 2. Verbindung).
     Gibt True (AN), False (AUS) oder None (nicht lesbar) zurück.
-    Nutzt den gleichen Befehl wie cinema_reboot/barco_projector.py.
     """
-    _LAMP_READ = bytes([_START, _ADDR, 0x76, 0x9A, 0x10, _STOP])
+    cs = _checksum(_ADDR, [0x76, 0x9A])
+    payload = bytes([_ADDR, 0x76, 0x9A, cs])
+    request = bytes([_START]) + _escape(payload) + bytes([_STOP])
     try:
         with socket.create_connection((ip, port), timeout=timeout) as sock:
-            sock.sendall(_LAMP_READ)
+            sock.sendall(request)
             ack = _recv_exact(sock, 6, timeout)
             if not ack or len(ack) < 4 or ack[2] != _ACK_CMD0 or ack[3] != _ACK_CMD1:
                 return None
-            resp = _recv_exact(sock, 7, timeout)
-            if resp and len(resp) >= 5 and resp[0] == _START and resp[-1] == _STOP:
-                if resp[4] == 0x01:
-                    return True   # Lampe AN
-                if resp[4] == 0x00:
-                    return False  # Lampe AUS
+            resp = _recv_frame(sock, timeout)
+            if resp and len(resp) >= 2 and resp[0] == _START and resp[-1] == _STOP:
+                inner = _unescape(resp[1:-1])
+                # inner: addr(1) + cmd0(1) + cmd1(1) + lamp_byte(1) + chksum(1)
+                if len(inner) >= 4 and inner[1] == 0x76 and inner[2] == 0x9A:
+                    if inner[3] == 0x01:
+                        return True   # Lampe AN
+                    if inner[3] == 0x00:
+                        return False  # Lampe AUS
     except Exception:
         pass
     return None
@@ -321,6 +357,25 @@ def _recv_exact(sock: socket.socket, n: int, timeout: int) -> bytes:
             if not chunk:
                 break
             buf += chunk
+    except socket.timeout:
+        pass
+    return buf
+
+
+def _recv_frame(sock: socket.socket, timeout: int) -> bytes:
+    """Liest ein vollständiges Barco-Frame bis zum Stop-Byte 0xFF.
+    Da 0xFF im Payload zu 0x80 0x7F escaped wird, markiert das erste
+    echte 0xFF-Byte sicher das Frameende."""
+    buf = b""
+    sock.settimeout(timeout)
+    try:
+        while True:
+            b = sock.recv(1)
+            if not b:
+                break
+            buf += b
+            if b == b"\xff":
+                break
     except socket.timeout:
         pass
     return buf
