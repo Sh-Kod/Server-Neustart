@@ -11,6 +11,11 @@
 - **Bug 4 behoben**: Retry-jede-Minute-Bug in `scheduler.py` — wenn ein Kino durch Playback/Transfer blockiert war und die Retry-Zeit außerhalb des Wartungsfensters lag (`next_retry=None`), fiel `is_due()` in den Planungs-Modus und gab jeden Loop-Zyklus (60s) `True` zurück → versuchte jede Minute zu rebooten. Fix: explizite Prüfung auf `BLOCKED_BY_PLAYBACK`/`BLOCKED_BY_TRANSFER` ohne Retry → sofort `False`.
 - **Feature**: Adaptives Retry-Intervall in der letzten Stunde des Wartungsfensters (commit 1abf4b2) — in den letzten 60 Minuten wird alle 15 Minuten statt alle 60 Minuten versucht. Konfigurierbar via `short_retry_interval_minutes` (Standard 15) und `short_retry_threshold_minutes` (Standard 60) in config.yaml.
 - **Einzelinstanz-Lock versucht** (Commits 510dfb3, 7ce4bc5): Named Mutex via ctypes, dann TCP-Socket auf Port 47392 — beide Ansätze greifen technisch, lösen aber das Doppelinstanz-Problem nicht vollständig (Root Cause ungeklärt). Siehe ausführliche Analyse unten.
+- **Watchdog implementiert** (Commits 1c71a7b, f51fc7d): `watchdog_cinema.py` überwacht den Cinema-Server via TCP-Verbindungscheck und sendet bei Absturz sofort eine Telegram-Benachrichtigung. Gestartet über `start_watchdog_hidden.vbs` ohne CMD-Fenster. Fix: `bind()` → `connect()` — Watchdog hatte zunächst denselben Port (47392) wie der Single-Instance-Lock gebunden → Port-Konflikt. Mit `connect()` wird nur geprüft ob der Server erreichbar ist, ohne einen eigenen Port zu belegen.
+- **Auto-Updater vereinfacht** (Commit 6111998): `os.execv()` durch `sys.exit(0)` ersetzt. NSSM erkennt den Exit-Code 0 als sauberes Beenden und startet den Dienst automatisch neu — kein manueller Subprocess-Spawn mehr nötig, kein Risiko einer zweiten Instanz durch den Updater selbst.
+- **Git-Pfad-Fix für NSSM** (Commit fd361b4): Neue Funktion `_find_git()` in `updater.py` sucht git.exe explizit unter `C:\Program Files\Git\cmd\git.exe` — NSSM-Dienste erben keinen vollständigen Windows-PATH, weshalb `git` als Befehl nicht gefunden wurde und der Auto-Updater still fehlschlug.
+- **Auto-Updater funktioniert bestätigt** (11.05.2026): Telegram-Benachrichtigung „🔄 Update installiert – 1 neuer Commit(s) geladen" erfolgreich empfangen. Der komplette Zyklus (fetch → pull → sys.exit(0) → NSSM-Neustart → Startmeldung) funktioniert korrekt.
+- **Server auf `main` migriert** (11.05.2026): Server-Branch war noch auf dem gelöschten Feature-Branch `claude/cinema-server-reboot-tool-18JjP`. Manuell auf `main` gewechselt (`git checkout main && git pull origin main`) — 61 Commits nachgezogen, alle 33 Dateien aktuell.
 
 ## Geänderte Dateien (gesamt)
 
@@ -21,8 +26,11 @@
 - `cinema_reboot/config.py` — `short_retry_interval_minutes`, `short_retry_threshold_minutes` neu
 - `cinema_reboot/reboot_engine.py` — `_process_outcome()` + `run()`: nutzen `smart_next_retry_time()`
 - `main.py` — Einzelinstanz-Lock (TCP-Socket Port 47392), `_release_single_instance_lock()` vor `os.execv()`
-- `CLAUDE.md` — aktualisiert
+- `CLAUDE.md` — aktualisiert (Workflows, Sprach- und Kommunikationsregeln ergänzt)
 - `CONTEXT.md` — diese Datei
+- `watchdog_cinema.py` — neu: Watchdog-Prozess (TCP-Check + Telegram-Alarm)
+- `start_watchdog_hidden.vbs` — neu: Starter für Watchdog ohne CMD-Fenster
+- `cinema_reboot/updater.py` — `_find_git()` neu: explizite Suche nach git.exe für NSSM-Kompatibilität
 
 ## Doppelinstanz-Problem – vollständige Analyse (ungeklärt)
 
@@ -105,12 +113,11 @@ Wenn bereits 2 Instanzen laufen (aus einem früheren Start) und beide den Auto-U
 
 ## Offene Probleme
 
-- **Doppelinstanz-Problem (Versuch 6 aktiv)**: Ob alle 3 Root Causes gemeinsam das Problem lösen, muss beim nächsten Auto-Update beobachtet werden.
-- **`.git/FETCH_HEAD`: Permission denied** — tritt auf wenn git-Operationen von unterschiedlichen Windows-Nutzern/Prozessen gestartet werden. Behelfslösung: `takeown /f ".git" /r /d j` + `icacls ".git" /grant "Projektion:(OI)(CI)F" /T`.
+- **Doppelinstanz-Problem (wahrscheinlich gelöst)**: Mit `sys.exit(0)` + NSSM-Neustart entfällt der manuelle `os.execv()`-Spawn — die häufigste Quelle der zweiten Instanz. Beim nächsten automatischen Update beobachten ob noch 2 Instanzen erscheinen. Falls ja → Sysinternals Process Monitor nutzen.
 - **Kein automatisches Test-Framework**: Alle Tests erfolgen manuell via `--dry-run` und `--status`.
 
 ## Nächster Schritt
 
-- Nach nächstem Auto-Update: `wmic process where "name='python.exe'" get ProcessId,ParentProcessId,CommandLine /format:list` ausführen → prüfen ob noch 2 Instanzen sichtbar sind
-- Falls noch immer 2: Sysinternals Process Monitor auf Windows-PC ausführen, Filter `python.exe`, VBS klicken → zeigt welcher Eltern-Prozess die zweite Instanz startet
-- Falls Telegram wieder nicht reagiert: Logs in `logs/` prüfen, auf Exception-Muster im `_run_loop` achten
+- Nächstes automatisches Update abwarten und per `wmic process where "name='python.exe'" get ProcessId,ParentProcessId,CommandLine /format:list` prüfen ob noch 2 Instanzen erscheinen.
+- Falls keine Doppelinstanz mehr → Problem als endgültig gelöst in CONTEXT.md vermerken.
+- Falls Telegram wieder nicht reagiert: Logs in `logs/` prüfen, auf Exception-Muster im `_run_loop` achten.
