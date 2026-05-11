@@ -35,14 +35,16 @@ def _load_telegram_config() -> tuple[str, str]:
 # ── Kernfunktionen ─────────────────────────────────────────────────────────────
 
 def _is_running() -> bool:
-    """True wenn Cinema Server Reboot läuft (Port 47392 belegt)."""
+    """True wenn Cinema Server Reboot läuft (Port 47392 lauscht).
+    Verbindet sich als Client – stört den Server-Lock nicht."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
     try:
-        sock.bind(("127.0.0.1", _LOCK_PORT))
+        sock.connect(("127.0.0.1", _LOCK_PORT))
         sock.close()
-        return False  # Bind erfolgreich → Port frei → Programm nicht aktiv
+        return True   # Verbindung erfolgreich → Programm läuft
     except OSError:
-        return True   # Port belegt → Programm läuft
+        return False  # Verbindung abgelehnt → Programm nicht aktiv
 
 
 def _send_alert(bot_token: str, chat_id: str, text: str) -> None:
