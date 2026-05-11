@@ -106,3 +106,9 @@ Tritt auf wenn git-Operationen von unterschiedlichen Windows-Nutzern gestartet w
 takeown /f ".git" /r /d j
 icacls ".git" /grant "Projektion:(OI)(CI)F" /T
 ```
+
+## Sprach- und Kommunikationsregeln
+
+- Antworte immer auf Deutsch, unabhängig von der Sprache der Eingabe.
+- Alle Erklärungen, Kommentare, Fehlermeldungen und Rückmeldungen auf Deutsch verfassen.
+- Codekommentare ebenfalls auf Deutsch schreiben.
