@@ -15,6 +15,7 @@ import os
 import signal
 import socket
 import sys
+import threading
 import time
 
 from cinema_reboot.app_state import AppState
@@ -42,6 +43,19 @@ _lock_socket = None
 
 # Port für die Einzel-Instanz-Sperre (lokal, nur 127.0.0.1)
 _LOCK_PORT = 47392
+
+
+def _serve_lock_socket() -> None:
+    """Leert die Accept-Queue des Lock-Sockets kontinuierlich.
+    Ohne accept() würde die Queue (backlog=1) nach der ersten Watchdog-Verbindung
+    volllaufen und alle weiteren Checks fälschlicherweise als 'offline' melden."""
+    global _lock_socket
+    while True:
+        try:
+            conn, _ = _lock_socket.accept()
+            conn.close()
+        except OSError:
+            break
 
 
 def _acquire_single_instance_lock() -> bool:
@@ -464,6 +478,8 @@ def main():
     if is_daemon and not _acquire_single_instance_lock():
         print("[Cinema Reboot] Eine andere Instanz läuft bereits – beende.")
         sys.exit(0)
+    if is_daemon:
+        threading.Thread(target=_serve_lock_socket, daemon=True, name="lock-server").start()
 
     config_path = os.path.abspath(args.config)
 
