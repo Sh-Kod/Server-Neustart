@@ -548,6 +548,16 @@ def main():
         logger.info("Update installiert – NSSM startet neu...")
         sys.exit(0)
 
+    # Playwright-Browser sicherstellen – lädt nur nach wenn Version fehlt
+    import subprocess
+    _pw = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        timeout=300,
+        capture_output=True,
+    )
+    if _pw.returncode != 0:
+        logger.warning(f"playwright install chromium fehlgeschlagen: {_pw.stderr.decode(errors='replace')}")
+
     # Telegram-Controller starten (falls aktiviert)
     if controller:
         controller.start()
