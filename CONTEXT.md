@@ -16,6 +16,7 @@
 - **Git-Pfad-Fix für NSSM** (Commit fd361b4): Neue Funktion `_find_git()` in `updater.py` sucht git.exe explizit unter `C:\Program Files\Git\cmd\git.exe` — NSSM-Dienste erben keinen vollständigen Windows-PATH, weshalb `git` als Befehl nicht gefunden wurde und der Auto-Updater still fehlschlug.
 - **Auto-Updater funktioniert bestätigt** (11.05.2026): Telegram-Benachrichtigung „🔄 Update installiert – 1 neuer Commit(s) geladen" erfolgreich empfangen. Der komplette Zyklus (fetch → pull → sys.exit(0) → NSSM-Neustart → Startmeldung) funktioniert korrekt.
 - **Server auf `main` migriert** (11.05.2026): Server-Branch war noch auf dem gelöschten Feature-Branch `claude/cinema-server-reboot-tool-18JjP`. Manuell auf `main` gewechselt (`git checkout main && git pull origin main`) — 61 Commits nachgezogen, alle 33 Dateien aktuell.
+- **Playwright-Browser-Fix** (14.05.2026): `playwright==1.58.0` benötigt `chromium_headless_shell-1208` — Binary fehlte im SYSTEM-Profil (`C:\WINDOWS\system32\config\systemprofile\AppData\Local\ms-playwright\`), da NSSM den Dienst als SYSTEM ausführt aber `playwright install chromium` nie als SYSTEM gelaufen war. Alle 13 Kinos schlugen heute Morgen ab 05:00 Uhr fehl. Manueller Fix via `schtasks` als SYSTEM. Dauerhafter Fix (Commit 3cafddc): `main.py` führt beim Start automatisch `playwright install chromium` aus — kein manueller Eingriff mehr nötig wenn Playwright-Version sich ändert.
 
 ## Geänderte Dateien (gesamt)
 
