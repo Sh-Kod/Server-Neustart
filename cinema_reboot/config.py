@@ -34,16 +34,21 @@ class Config:
             for field in ["id", "name", "ip", "type"]:
                 if field not in cinema:
                     raise ValueError(f"Kino-Eintrag fehlt Feld '{field}': {cinema}")
-            if cinema["type"] not in ("doremi", "ims3000"):
+            if cinema["type"] not in ("doremi", "ims3000", "pending"):
                 raise ValueError(
                     f"Unbekannter Kino-Typ '{cinema['type']}' für {cinema['id']}. "
-                    "Erlaubt: 'doremi', 'ims3000'"
+                    "Erlaubt: 'doremi', 'ims3000', 'pending'"
                 )
 
     @property
     def cinemas(self) -> list[dict]:
         """Gibt nur aktivierte Kinos zurück."""
         return [c for c in self._raw["cinemas"] if c.get("enabled", True)]
+
+    @property
+    def reboot_cinemas(self) -> list[dict]:
+        """Aktivierte Kinos mit fertigem Handler (kein 'pending')."""
+        return [c for c in self.cinemas if c.get("type") != "pending"]
 
     @property
     def credentials(self) -> dict:
