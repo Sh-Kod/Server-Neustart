@@ -104,7 +104,7 @@ class Scheduler:
         group_size     = self._config.group_size
         group_interval = self._config.group_interval_minutes
 
-        for idx, cinema in enumerate(self._config.cinemas):
+        for idx, cinema in enumerate(self._config.reboot_cinemas):
             cid = cinema["id"]
             if cid not in self._today_schedule:
                 group_idx = idx // group_size
@@ -179,7 +179,7 @@ class Scheduler:
     def get_cinemas_due(self) -> list[dict]:
         """Gibt die Liste der Kinos zurück, die jetzt bearbeitet werden sollen."""
         self._ensure_schedule_fresh()
-        return [c for c in self._config.cinemas if self.is_due(c["id"])]
+        return [c for c in self._config.reboot_cinemas if self.is_due(c["id"])]
 
     def _ensure_schedule_fresh(self) -> None:
         """Stellt sicher, dass der Plan für heute aktuell ist."""
@@ -233,7 +233,7 @@ class Scheduler:
     def summary(self) -> str:
         """Gibt eine lesbare Übersicht des heutigen Plans aus."""
         lines = ["📅 Heutiger Reboot-Plan:"]
-        for cinema in self._config.cinemas:
+        for cinema in self._config.reboot_cinemas:
             cid = cinema["id"]
             name = cinema["name"]
             t = self.get_scheduled_time(cid)

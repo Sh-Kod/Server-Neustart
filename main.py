@@ -170,7 +170,7 @@ def cmd_status(config: Config, state: StateManager, scheduler: Scheduler) -> Non
 
 def cmd_run_single(config: Config, cinema_id: str, engine: RebootEngine) -> None:
     """Führt sofort einen Reboot für ein bestimmtes Kino durch."""
-    cinemas = {c["id"]: c for c in config.cinemas}
+    cinemas = {c["id"]: c for c in config.reboot_cinemas}
     if cinema_id not in cinemas:
         print(f"Kino '{cinema_id}' nicht gefunden. Verfügbare IDs: {', '.join(cinemas.keys())}")
         sys.exit(1)
@@ -331,7 +331,7 @@ def main_loop(
         # Sofort-Läufe via Telegram?
         pending = app_state.pop_pending_runs()
         if pending and app_state.reboot_enabled:
-            cinemas_map = {c["id"]: c for c in config.cinemas}
+            cinemas_map = {c["id"]: c for c in config.reboot_cinemas}
             to_run = [cinemas_map[cid] for cid in pending if cid in cinemas_map]
             unknown = [cid for cid in pending if cid not in cinemas_map]
             for cid in unknown:
@@ -368,10 +368,10 @@ def main_loop(
 
         # ── "Alle Säle erledigt" Nachricht ───────────────────────────────────
         if not _all_done_reported and scheduler.in_maintenance_window():
-            enabled_ids = [c["id"] for c in config.cinemas if c.get("enabled", True)]
+            enabled_ids = [c["id"] for c in config.reboot_cinemas]
             all_done = all(state.was_successful_today(cid, today) for cid in enabled_ids)
             if all_done and enabled_ids:
-                names = [c["name"] for c in config.cinemas if c.get("enabled", True)]
+                names = [c["name"] for c in config.reboot_cinemas]
                 logger.info("Alle Säle erfolgreich neu gestartet – sende Abschlussmeldung.")
                 telegram.send_all_done(names)
                 _all_done_reported = True
@@ -379,7 +379,7 @@ def main_loop(
         # ── Wartungsfenster gerade geschlossen → Abschlussbericht ────────────
         in_window_now = scheduler.in_maintenance_window()
         if _was_in_window and not in_window_now and not _window_closed_reported:
-            enabled = [c for c in config.cinemas if c.get("enabled", True)]
+            enabled = config.reboot_cinemas
             failed = [c["name"] for c in enabled if not state.was_successful_today(c["id"], today)]
             succeeded = [c["name"] for c in enabled if state.was_successful_today(c["id"], today)]
             if failed:

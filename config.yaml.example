@@ -45,6 +45,22 @@ cinemas:
     projector_port: 5004             # WebSocket-Port (Christie CineLife+: 5004)
     projector_type: "christie"       # "barco" (Standard) oder "christie"
 
+  - id: kino06
+    name: "Kino 06"
+    ip: "192.168.1.16"
+    type: "pending"          # Handler noch nicht implementiert → kein Donnerstag-Reboot
+    enabled: true
+    projector_ip: "192.168.1.26"
+    projector_type: "laser"  # kein SNMP-Lampenzähler → wird bei Lampenprüfung übersprungen
+
+  - id: kino07
+    name: "Kino 07"
+    ip: "192.168.1.17"
+    type: "pending"          # Handler noch nicht implementiert → kein Donnerstag-Reboot
+    enabled: true
+    projector_ip: "192.168.1.27"
+    projector_type: "laser"  # kein SNMP-Lampenzähler → wird bei Lampenprüfung übersprungen
+
   # Weitere Kinos nach Bedarf hier ergänzen...
 
 # Login-Daten (gelten für alle Kinos)
