@@ -19,7 +19,24 @@ class Config:
             raw = yaml.safe_load(f)
 
         self._raw = raw
+        self._base_dir = os.path.dirname(config_path)
+        self._apply_overrides()
         self._validate(raw)
+
+    def _apply_overrides(self) -> None:
+        """Merged cinema_overrides.yaml in self._raw — config.yaml bleibt unberührt."""
+        path = os.path.join(self._base_dir, "cinema_overrides.yaml")
+        if not os.path.exists(path):
+            return
+        with open(path, "r", encoding="utf-8") as f:
+            ov = yaml.safe_load(f) or {}
+        by_id = {c["id"]: c for c in self._raw.get("cinemas", [])}
+        for override in ov.get("cinemas", []):
+            cid = override.get("id")
+            if cid and cid in by_id:
+                for key, val in override.items():
+                    if key != "id":
+                        by_id[cid][key] = val
 
     def _validate(self, raw: dict) -> None:
         required_keys = ["cinemas", "credentials", "maintenance_window", "telegram", "settings"]

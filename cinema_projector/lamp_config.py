@@ -3,13 +3,32 @@ Konfiguration für den Lampen-Monitor.
 Liest aus derselben config.yaml wie das Reboot-Modul.
 Völlig unabhängig von cinema_reboot.config – keine gemeinsamen Klassen.
 """
+import os
 import yaml
+
+
+def _apply_overrides(raw: dict, base_dir: str) -> None:
+    """Merged cinema_overrides.yaml in raw — config.yaml bleibt unberührt."""
+    path = os.path.join(base_dir, "cinema_overrides.yaml")
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        ov = yaml.safe_load(f) or {}
+    by_id = {c["id"]: c for c in raw.get("cinemas", [])}
+    for override in ov.get("cinemas", []):
+        cid = override.get("id")
+        if cid and cid in by_id:
+            for key, val in override.items():
+                if key != "id":
+                    by_id[cid][key] = val
 
 
 class LampConfig:
     def __init__(self, config_path: str):
+        config_path = os.path.abspath(config_path)
         with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
+        _apply_overrides(raw, os.path.dirname(config_path))
 
         pm = raw.get("projector_monitor", {})
 
