@@ -51,5 +51,5 @@ class LampConfig:
                 "snmp_temp_div":   float(c.get("snmp_temp_div", 1.0)),
             }
             for c in cinemas
-            if c.get("enabled", True) and c.get("projector_ip")
+            if c.get("enabled", True) and c.get("projector_ip") and c.get("type") != "pending"
         ]
