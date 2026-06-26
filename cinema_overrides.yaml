@@ -1,0 +1,8 @@
+# Kino-Typ-Überschreibungen – wird via Git deployed, kein Anfassen von config.yaml nötig.
+# Felder hier überschreiben beim Programmstart die entsprechenden Kino-Einträge in config.yaml.
+# Nur nicht-sensitive Felder eintragen (keine IPs, Passwörter).
+cinemas:
+  - id: kino06
+    type: "pending"   # Laser-Projektor, neuer Server-Typ – Handler noch nicht implementiert
+  - id: kino07
+    type: "pending"   # Laser-Projektor, neuer Server-Typ – Handler noch nicht implementiert
