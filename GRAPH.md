@@ -164,6 +164,18 @@ Nächster Debug-Schritt: Sysinternals Process Monitor
 | 7 | main.py | os.execv() → 2 Instanzen | Popen+CREATE_BREAKAWAY+os._exit(0) |
 | 8 | watchdog_cinema.py | bind() auf 47392 → Port-Konflikt | connect() statt bind() |
 | 9 | lamp_config.py | pending-Kinos mit projector_ip wurden trotzdem in SNMP+Health-Monitor aufgenommen | `c.get("type") != "pending"` Filter |
+| 10 | config.py + lamp_config.py | type=pending in config.yaml erforderte manuelle User-Aktion | `cinema_overrides.yaml` + `_apply_overrides()` |
+
+## cinema_overrides.yaml — Deployment ohne config.yaml-Änderung
+
+```
+Datei: cinema_overrides.yaml (committed, kein sensitiver Inhalt)
+Mechanismus: Config._apply_overrides() + lamp_config._apply_overrides()
+             → merged vor _validate() / projectors-Liste
+             → config.yaml-Dicts werden in-place überschrieben
+Aktuelle Einträge: kino06 + kino07 → type: "pending"
+Neue Kinos: einfach weiteren Eintrag hinzufügen
+```
 
 ## Regeln (kodifiziert)
 
@@ -204,7 +216,7 @@ python main.py --test-lamps
 Doremi/DCP2000 : Kino 01–05, 09–13  → handlers/doremi.py
 IMS3000        : Kino 08             → handlers/ims3000.py
 pending        : Kino 06, 07         → kein Reboot, kein Lampen-/Health-Check
-                                        (Laser-Projektoren, Handler noch nicht implementiert)
+                                        gesetzt via cinema_overrides.yaml (kein config.yaml-Eingriff)
 Barco          : optional            → barco_projector.py + snmp_client.py
 ```
 
