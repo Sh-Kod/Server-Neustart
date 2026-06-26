@@ -17,21 +17,25 @@
 - **Auto-Updater funktioniert bestätigt** (11.05.2026): Telegram-Benachrichtigung „🔄 Update installiert – 1 neuer Commit(s) geladen" erfolgreich empfangen. Der komplette Zyklus (fetch → pull → sys.exit(0) → NSSM-Neustart → Startmeldung) funktioniert korrekt.
 - **Server auf `main` migriert** (11.05.2026): Server-Branch war noch auf dem gelöschten Feature-Branch `claude/cinema-server-reboot-tool-18JjP`. Manuell auf `main` gewechselt (`git checkout main && git pull origin main`) — 61 Commits nachgezogen, alle 33 Dateien aktuell.
 - **Playwright-Browser-Fix** (14.05.2026): `playwright==1.58.0` benötigt `chromium_headless_shell-1208` — Binary fehlte im SYSTEM-Profil (`C:\WINDOWS\system32\config\systemprofile\AppData\Local\ms-playwright\`), da NSSM den Dienst als SYSTEM ausführt aber `playwright install chromium` nie als SYSTEM gelaufen war. Alle 13 Kinos schlugen heute Morgen ab 05:00 Uhr fehl. Manueller Fix via `schtasks` als SYSTEM. Dauerhafter Fix (Commit 3cafddc): `main.py` führt beim Start automatisch `playwright install chromium` aus — kein manueller Eingriff mehr nötig wenn Playwright-Version sich ändert.
+- **Kino 6 & 7 herausgenommen** (26.06.2026, PR #6, Commit adc2833): Kino 6 und 7 haben neue Laser-Projektoren mit noch unbekannter Web-UI. Neuer Typ `"pending"` in config.yaml markiert Kinos ohne fertigen Handler. `reboot_cinemas`-Property in `config.py` filtert diese aus Scheduler, Sofort-Reboot und Abschlussberichten heraus. `lamp_config.py` schließt pending-Kinos explizit aus — schützt sowohl SNMP-Lampencheck (20:00 Uhr) als auch Health-Monitor, unabhängig von `projector_type` in config.yaml. Status-Anzeige und State-Reset bleiben für alle Kinos aktiv. **User-Aktion nötig**: In `config.yaml` für kino06 und kino07 `type: "pending"` setzen.
 
 ## Geänderte Dateien (gesamt)
 
 - `cinema_reboot/state_manager.py` — `reset_for_new_day()`: `IN_PROGRESS`-Schutz nur für heutigen Tag
 - `cinema_reboot/telegram_controller.py` — `_run_loop()`: per-Update Exception-Handling statt per-Batch
 - `cinema_projector/lamp_controller.py` — Cancel-Handler: `self._dm.reset()` ergänzt
-- `cinema_reboot/scheduler.py` — `is_due()`: BLOCKED-ohne-Retry → False; `smart_next_retry_time()` neu
-- `cinema_reboot/config.py` — `short_retry_interval_minutes`, `short_retry_threshold_minutes` neu
+- `cinema_reboot/scheduler.py` — `is_due()`: BLOCKED-ohne-Retry → False; `smart_next_retry_time()` neu; `reboot_cinemas` statt `cinemas` in Plan/Due/Summary
+- `cinema_reboot/config.py` — `short_retry_interval_minutes`, `short_retry_threshold_minutes` neu; `"pending"` als Typ; `reboot_cinemas`-Property
 - `cinema_reboot/reboot_engine.py` — `_process_outcome()` + `run()`: nutzen `smart_next_retry_time()`
-- `main.py` — Einzelinstanz-Lock (TCP-Socket Port 47392), `_release_single_instance_lock()` vor `os.execv()`
+- `cinema_projector/lamp_config.py` — `projectors`-Filter schließt `type: "pending"` aus
+- `main.py` — Einzelinstanz-Lock (TCP-Socket Port 47392), `_release_single_instance_lock()` vor `os.execv()`; `reboot_cinemas` in 4 Stellen
 - `CLAUDE.md` — aktualisiert (Workflows, Sprach- und Kommunikationsregeln ergänzt)
 - `CONTEXT.md` — diese Datei
+- `GRAPH.md` — neu: token-effiziente Wissensbasis (Mermaid-Diagramme)
 - `watchdog_cinema.py` — neu: Watchdog-Prozess (TCP-Check + Telegram-Alarm)
 - `start_watchdog_hidden.vbs` — neu: Starter für Watchdog ohne CMD-Fenster
 - `cinema_reboot/updater.py` — `_find_git()` neu: explizite Suche nach git.exe für NSSM-Kompatibilität
+- `config.yaml.example` — Kino 06/07 als Beispiel mit `type: "pending"`
 
 ## Doppelinstanz-Problem – vollständige Analyse (ungeklärt)
 

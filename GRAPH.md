@@ -163,6 +163,7 @@ Nächster Debug-Schritt: Sysinternals Process Monitor
 | 6 | main.py | Playwright-Binary fehlte für SYSTEM-Dienst | Auto-Install beim Start |
 | 7 | main.py | os.execv() → 2 Instanzen | Popen+CREATE_BREAKAWAY+os._exit(0) |
 | 8 | watchdog_cinema.py | bind() auf 47392 → Port-Konflikt | connect() statt bind() |
+| 9 | lamp_config.py | pending-Kinos mit projector_ip wurden trotzdem in SNMP+Health-Monitor aufgenommen | `c.get("type") != "pending"` Filter |
 
 ## Regeln (kodifiziert)
 
@@ -200,7 +201,21 @@ python main.py --test-lamps
 ## Kino-Server-Typen
 
 ```
-Doremi/DCP2000 : Kino 01–07, 09–13  → handlers/doremi.py
+Doremi/DCP2000 : Kino 01–05, 09–13  → handlers/doremi.py
 IMS3000        : Kino 08             → handlers/ims3000.py
+pending        : Kino 06, 07         → kein Reboot, kein Lampen-/Health-Check
+                                        (Laser-Projektoren, Handler noch nicht implementiert)
 Barco          : optional            → barco_projector.py + snmp_client.py
+```
+
+## pending-Typ — Verhalten
+
+```
+config.yaml:   type: "pending"
+Reboot:        nie (scheduler + engine bekommen kein pending-Kino)
+Lampen-SNMP:   nie (lamp_config.py filtert type=pending aus projectors heraus)
+Health-Monitor: nie (nutzt dieselbe projectors-Liste aus lamp_config.py)
+Status (--status): sichtbar (config.cinemas enthält alle aktivierten Kinos)
+State-Reset:   täglich wie alle anderen (config.cinemas)
+Sofort-Reboot: blockiert (cmd_run_single + Telegram-Sofort-Reboot nutzen reboot_cinemas)
 ```
